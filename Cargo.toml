@@ -1,0 +1,13 @@
+[package]
+name = "quantum"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "quantum"
+path = "src/main.rs"
+
+[dependencies]
+smallvec = { version = "1", features = ["union"] }
+rustc-hash = "1"
+rayon = "1"
