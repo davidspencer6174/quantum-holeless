@@ -132,6 +132,15 @@ impl Dir {
     pub fn all() -> [Dir; 4] {
         [Dir::Up, Dir::Down, Dir::Left, Dir::Right]
     }
+    /// Returns the index of this direction in the `SearchContext.pushable` array.
+    pub fn idx(self) -> usize {
+        match self {
+            Dir::Up => 0,
+            Dir::Down => 1,
+            Dir::Left => 2,
+            Dir::Right => 3,
+        }
+    }
     pub fn apply(self, x: u16, y: u16) -> Option<(u16, u16)> {
         match self {
             Dir::Up => y.checked_sub(1).map(|y2| (x, y2)),

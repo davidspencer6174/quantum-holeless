@@ -2,6 +2,7 @@
 
 pub mod backward;
 pub mod bfs;
+//pub mod bfsrelaxed;
 pub mod board;
 pub mod deadlock;
 pub mod io;

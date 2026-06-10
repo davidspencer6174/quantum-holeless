@@ -39,12 +39,13 @@ use crate::qstate::{
     slot_has_uncovered_assignment, slot_mask_at, Assignment, QState, Shortcut,
     ShortcutConstraints, StartSlot, INVALID, INVALID_SLOT, MAX_STARTS,
 };
+//use crate::bfsrelaxed::{RelaxedCache,RelaxedResult, relaxed_solve};
 use crate::types::{Dir, FlatIdx, QBlockId, Tile};
 
 // ── BfsNode ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
-struct BfsNode {
+pub struct BfsNode {
     player: FlatIdx,
     steps: u32,
     qstate: QState,
@@ -63,18 +64,24 @@ pub struct SearchContext {
     pub q_occupancy: u128,
     pub box_occupancy: u128,
     pub covered_mask: u128,
-    pub reachable_stack: Vec<FlatIdx>,
     pub static_walls: u128,
     pub static_boxes: u128,
+    pub inner_mask: u128,
+    /// For each direction, a bitmask of tiles that can be pushed in that direction.
+    /// A tile is pushable in a direction if:
+    ///   (a) it holds a concrete box whose push_mask includes the direction, OR
+    ///   (b) it holds at least one valid QB slot whose push_mask includes the direction.
+    pub pushable: [u128; 4],
+    //pub relaxed_cache: RelaxedCache,
 }
 
 // ── Fingerprint ───────────────────────────────────────────────────────────────
 
-fn node_fingerprint(node: &BfsNode) -> u64 {
+pub fn node_fingerprint(node: &BfsNode) -> u64 {
     fingerprint_raw(node.player, &node.qstate, &node.box_state)
 }
 #[inline(never)] // Mark this explicitely, as it's a known hotspot we want to measure
-fn fingerprint_raw(player: FlatIdx, qstate: &QState, box_state: &BoxState) -> u64 {
+pub fn fingerprint_raw(player: FlatIdx, qstate: &QState, box_state: &BoxState) -> u64 {
     let mut h = DefaultHasher::new();
     player.hash(&mut h);
     qstate.hash(&mut h);
@@ -163,7 +170,7 @@ fn add_shortcut_qstate(
 /// Try to refresh a node's witness using a shared pool first, then fall back
 /// to a full search. Returns an index into `pool` for a valid, uncovered
 /// assignment, or `None` if none exists.
-fn refresh_witness_in_pool(
+pub fn refresh_witness_in_pool(
     witness_idx: Option<usize>,
     pool: &mut Vec<Assignment>,
     qstate: &QState,
@@ -308,14 +315,6 @@ pub fn forward_bfs(
         );
     }
 
-    /*if initial_shortcuts.len() != shortcut_constraints.len() {
-        println!(
-            "Initial shortcuts: {} provided, {} unique after compaction",
-            initial_shortcuts.len(),
-            shortcut_constraints.len()
-        );
-    }*/
-
     // For the result: did we ever find an uncovered assignment at the exit
     // at exactly target_steps? Track per-slot, plus global flags for the
     // zero-QB case where slot_has_clean is empty.
@@ -454,23 +453,16 @@ pub fn forward_bfs(
 
     let mut visited: FxHashSet<u64> = FxHashSet::default();
 
-    let inner_mask = {
-        let mut m = 0u128;
-        for y in 1..board.height - 1 {
-            for x in 1..board.width - 1 {
-                m |= 1u128 << board.flat(x, y);
-            }
-        }
-        m
-    };
-
+    //let mut relaxed_cache = RelaxedCache::new();
     let mut ctx = SearchContext {
         q_occupancy: 0,
         box_occupancy: 0,
         covered_mask: 0,
-        reachable_stack: Vec::with_capacity(MAX_TILES),
         static_walls,
         static_boxes,
+        inner_mask: 0,
+        pushable: [0; 4],
+        //relaxed_cache: RelaxedCache::new(),
     };
 
     let cap = target_steps as usize + 1;
@@ -496,8 +488,6 @@ pub fn forward_bfs(
                 &slots,
                 num_qbs,
                 &qb_masks,
-                static_walls,
-                static_boxes,
                 &mut ctx,
                 &mut visited,
                 &mut shortcut_constraints,
@@ -677,8 +667,6 @@ fn process_bfs_node(
     slots: &[StartSlot],
     num_qbs: usize,
     qb_masks: &[u64],
-    static_walls: u128,
-    static_boxes: u128,
     ctx: &mut SearchContext,
     visited: &mut FxHashSet<u64>,
     shortcut_constraints: &mut Vec<ShortcutConstraints>,
@@ -690,14 +678,9 @@ fn process_bfs_node(
     pool: &mut Vec<Assignment>,
     verbose: u8,
 ) {
-    let is_on_target_path = false;
 
-    //if is_on_target_path {
-    //    println!("[TRACE] Visiting target-path node: steps={}, history={:?}, player=({},{}), qstate={:?}, box_state={:?}",
-    //        node.steps, node.history, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved);
-    //}
     let fp = node_fingerprint(&node);
-    if verbose > 0{
+    if verbose > 0 && step < 5 {
         println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
             node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
     }
@@ -738,7 +721,7 @@ fn process_bfs_node(
         }
     }
 
-    ctx.box_occupancy = static_boxes;
+    ctx.box_occupancy = ctx.static_boxes;
     for &(orig, _) in node.box_state.moved.iter() {
         ctx.box_occupancy &= !(1u128 << orig);
     }
@@ -746,9 +729,45 @@ fn process_bfs_node(
         ctx.box_occupancy |= 1u128 << dest;
     }
 
+    // Compute inner_mask: bitmask of tiles on the interior of the board.
+    ctx.inner_mask = {
+        let mut m = 0u128;
+        for y in 1..board.height - 1 {
+            for x in 1..board.width - 1 {
+                m |= 1u128 << board.flat(x, y);
+            }
+        }
+        m
+    };
+
+    // Compute pushable: for each direction, a bitmask of tiles that can be pushed in that direction.
+    ctx.pushable = [0; 4];
+    for (dir_idx, &dir) in Dir::all().iter().enumerate() {
+        // Check concrete boxes: iterate through set bits in box_occupancy
+        {
+            let mut remaining = ctx.box_occupancy;
+            while remaining != 0 {
+                let orig = remaining.trailing_zeros() as usize as FlatIdx;
+                remaining &= remaining - 1; // Clear the lowest set bit
+                let box_mask = board.get_box_push_mask(orig);
+                if (box_mask & dir.mask()) > 0 {
+                    ctx.pushable[dir_idx] |= 1u128 << orig;
+                }
+            }
+        }
+        // Check QB slots
+        let valid_mask = node.qstate.valid_mask();
+        for (i, slot) in slots.iter().enumerate() {
+            if (valid_mask >> i) & 1 != 0 && slot.allows(dir) {
+                let pos = node.qstate.get(i);
+                ctx.pushable[dir_idx] |= 1u128 << pos;
+            }
+        }
+    }
+
     // Calculate bitmask of tiles that MUST be covered (walls, static boxes, moved boxes,
     // and QBs with only one valid current position).
-    ctx.covered_mask = static_walls | ctx.box_occupancy;
+    ctx.covered_mask = ctx.static_walls | ctx.box_occupancy;
     let valid_mask = node.qstate.valid_mask();
     for &mask in qb_masks {
         let qb_valid = mask & valid_mask;
@@ -776,23 +795,19 @@ fn process_bfs_node(
 
     let (px, py) = board.coords(node.player);
     let (ex, ey) = board.coords(exit);
-    //if (px as i32 - ex as i32).unsigned_abs() + (py as i32 - ey as i32).unsigned_abs() == 1 {
 
     // Manhattan lower-bound pruning.
     let dist = (px as i32 - ex as i32).unsigned_abs() as u32
         + (py as i32 - ey as i32).unsigned_abs() as u32;
     if dist > target_steps - node.steps {
-        //if is_on_target_path {
-        //    println!("[TRACE] Target path node pruned by Manhattan distance! dist={}, steps_left={}", dist, target_steps - node.steps);
-        //}
         return;
     }
 
     if !visited.insert(fp) {
         return;
     }
-    //if verbose && visited.len() % 100000 == 0 {
-    if visited.len() % 1000000 == 0 {
+    //if verbose > 0 && visited.len() % 100000 == 0 {
+    if visited.len() % 1000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
 
@@ -855,6 +870,33 @@ fn process_bfs_node(
         return;
     }
 
+    let steps_remaining = target_steps - node.steps;
+    /*match relaxed_solve(
+        node.player,
+        exit,
+        steps_remaining,
+        board,
+        &node.qstate,
+        slots,
+        &node.box_state,
+        ctx.static_walls,
+        ctx.static_boxes,
+        &mut ctx.relaxed_cache,
+    ) {
+        RelaxedResult::Deadlock => {
+            if node.steps < 15{
+                println!("DEADLOCK with qstate {:?} and box_state {:?} at step {}, pruning!", node.qstate.cur, node.box_state.moved, node.steps);
+            }
+            return;
+        }
+        RelaxedResult::LowerBound(lower_bound) if lower_bound > steps_remaining => {
+            //println!("Lower bound pruning!");
+            return
+        },
+        
+        RelaxedResult::LowerBound(_) | RelaxedResult::Exact(_) => {}
+    }*/
+
 
     expand_node_children(
         &node,
@@ -866,7 +908,6 @@ fn process_bfs_node(
         shortcut_constraints,
         buckets,
         pool,
-        static_walls,
         ctx,
     );
 }
@@ -882,7 +923,6 @@ fn expand_node_children(
     shortcuts: &[ShortcutConstraints],
     buckets: &mut [Vec<BfsNode>],
     pool: &mut Vec<Assignment>,
-    static_walls: u128,
     ctx: &mut SearchContext,
 ) {
     let mut dists = [u8::MAX; MAX_TILES];
@@ -890,7 +930,7 @@ fn expand_node_children(
     let (mut head, mut tail) = (0, 0);
     let (ex, ey) = board.coords(exit);
 
-    let solid_mask = static_walls | ctx.box_occupancy;
+    let solid_mask = ctx.static_walls | ctx.box_occupancy;
 
     dists[node.player as usize] = 0;
     queue[tail] = node.player;
@@ -1033,62 +1073,7 @@ fn quick_shortcut_check(
         }
     }
 
-    // Direct suffixes (skip steps from the beginning)
-    /*run_suffix(
-        smallvec![root.clone()],
-        &intended_path[1..],
-        shortcut_qstates,
-        shortcut_qstate_set,
-    );
-    if intended_path.len() > 1 {
-        run_suffix(
-            smallvec![root.clone()],
-            &intended_path[2..],
-            shortcut_qstates,
-            shortcut_qstate_set,
-        );
-    }
-
-    // Deviations of length 1 and 2 and 3
-    for d1 in Dir::all() {
-        let n1s = simulate_step(root, d1, board, slots, num_qbs, exit);
-        for start_ind in 1..intended_path.len() {
-            run_suffix(
-                n1s.clone(),
-                &intended_path[start_ind..],
-                shortcut_qstates,
-                shortcut_qstate_set,
-            );
-        }
-
-        for n1 in n1s {
-            for d2 in Dir::all() {
-                let n2s = simulate_step(&n1, d2, board, slots, num_qbs, exit);
-                for start_ind in 2..intended_path.len() {
-                    run_suffix(
-                        n2s.clone(),
-                        &intended_path[start_ind..],
-                        shortcut_qstates,
-                        shortcut_qstate_set,
-                    );
-                }
-                for n2 in n2s {
-                    for d3 in Dir::all() {
-                        let n3s = simulate_step(&n2, d3, board, slots, num_qbs, exit);
-                        for start_ind in 3..intended_path.len() {
-                            run_suffix(
-                                n3s
-                                    .clone(),
-                                &intended_path[start_ind..],
-                                shortcut_qstates,
-                                shortcut_qstate_set,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }*/
+    
 }
 
 fn simulate_step(
@@ -1520,6 +1505,9 @@ fn handle_player_move_to_box(
     if (box_mask & dir.mask()) == 0 {
         return;
     }
+    // NOTE: An alternative approach using SearchContext.pushable would be:
+    // if (1u128 << orig) & ctx.pushable[dir.idx()] == 0 { return; }
+    // This would combine checks for both concrete boxes and quantum blocks in one bitmask lookup.
     box_state.move_box(orig, beyond);
     // Moving a concrete box into 'beyond' crushes any quantum interpretation there.
     qstate.invalidate_all(beyond);
@@ -1591,3 +1579,6 @@ fn make_child(
         //history: SmallVec::new(),
     })
 }
+
+
+
