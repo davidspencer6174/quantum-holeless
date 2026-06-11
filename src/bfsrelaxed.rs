@@ -46,7 +46,29 @@ impl RelaxedCache {
         self.results.get(&fingerprint).cloned()
     }
 
-    pub fn insert(&mut self, fingerprint: u64, result: RelaxedResult) {
+    pub fn insert(&mut self, fingerprint: u64, result: RelaxedResult){
+        if let Some(existing) = self.results.get(&fingerprint) {
+            //if it's exact or deadlock, can't tighten
+            //if it's a lower bound, should take the tighter lower bound
+            match existing {
+                RelaxedResult::Exact(_) | RelaxedResult::Deadlock => {
+                    //assert_eq!(*existing, result, "Inconsistent cache entry for fingerprint {:x}: existing {:?}, new {:?}", fingerprint, existing, result);
+                    return;
+                },
+                RelaxedResult::LowerBound(existing_bound) => {
+                    if let RelaxedResult::LowerBound(new_bound) = result {
+                        if new_bound < *existing_bound {
+                            self.results.insert(fingerprint, result);
+                        }
+                        return;
+                    }
+                    if let RelaxedResult::Exact(_) = result {
+                        self.results.insert(fingerprint, result);
+                        return;
+                    }
+                }
+            }
+        }        
         self.results.insert(fingerprint, result);
     }
 
@@ -55,10 +77,44 @@ impl RelaxedCache {
     }
 }
 
+pub fn basic_flood_fill(
+    blocking_mask: u128,
+    start_pos: FlatIdx,
+) -> u128 {
+    let mut visited_mask = 0u128;
+    visited_mask |= 1u128 << start_pos; // mark the starting position as visited
+    loop {
+        let mut new_visited_mask = visited_mask;
+        for dir in Dir::all().iter() {
+            let delta = match dir {
+                Dir::Up => -(MAX_TILES as i128),
+                Dir::Down => MAX_TILES as i128,
+                Dir::Left => -1,
+                Dir::Right => 1,
+            };
+            let next = if delta > 0 {
+                visited_mask << delta
+            } else {
+                visited_mask >> (-delta as usize)
+            };
+            let steppable = !blocking_mask;
+            let newly_reachable_mask = next & steppable;
+            new_visited_mask |= newly_reachable_mask;
+        }
+        new_visited_mask &= !visited_mask;
+        if new_visited_mask == 0 {
+            break; // no new tiles visited, so we're done
+        }
+        visited_mask |= new_visited_mask;
+    }
+    visited_mask
+}
+
 // ── relaxed_solve ───────────────────────────────────────────────────────────────
 
 pub fn relaxed_solve(
     board: &QuantumBoard,
+    slots: &[StartSlot],
     player: FlatIdx,
     exit: FlatIdx,
     target_steps: u32,
@@ -131,6 +187,68 @@ pub fn relaxed_solve(
         visited_mask |= new_visited_mask;
     }
 
-    return RelaxedResult::Exact(steps);
+    let player_floor_flood = basic_flood_fill(ctx.static_walls | ctx.covered_mask | ctx.q_occupancy, player);
+    let exit_floor_flood = basic_flood_fill(player_floor_flood, exit);
+    let non_core_region = !(exit_floor_flood | player_floor_flood);
+    let mut full_relaxed_solve = false;
 
+    if non_core_region & (ctx.q_occupancy | ctx.box_occupancy) == 0 {
+        return RelaxedResult::Exact(steps);
+    }
+    
+    let mut new_root_node = root_node.clone();
+    
+    // Collect QB IDs that have at least one current position in the non_core_region,
+    // and move all such slots (and concrete boxes) to position 0.
+    let mut deleted_qb_ids: Vec<QBlockId> = Vec::new();
+
+    for (qb_id, qb) in board.quantum_blocks.iter().enumerate() {
+        if qb.is_empty() {
+            continue;
+        }
+        let touches_non_core = qb
+            .current_positions()
+            .any(|pos| (non_core_region >> pos) & 1 != 0);
+        if touches_non_core {
+            deleted_qb_ids.push(qb_id as QBlockId);
+            // Zero out every slot belonging to this QB.
+            for (i, slot) in slots.iter().enumerate() {
+                if slot.qb_id == qb_id as QBlockId {
+                    new_root_node.qstate.set(i, 0);
+                }
+            }
+        }
+    }
+
+    // Handle concrete boxes (Tile::Box). These aren't tracked in QStates so we
+    // clear them from the SearchContext occupancy instead. Zero out their bit in
+    // ctx.box_occupancy so the player can pass through freely.
+    ctx.box_occupancy &= !non_core_region;
+    ctx.static_boxes &= !non_core_region; // keep ctx consistent if used later
+
+    for (_, dest) in new_root_node.box_state.moved.iter_mut() {
+        let current_pos = *dest; // dest is where the box is now
+        if (non_core_region >> current_pos) & 1 != 0 {
+            *dest = 0;
+            full_relaxed_solve = true; // deleted a box; run the full relaxed solve
+        }
+    }
+    if !full_relaxed_solve {
+        return RelaxedResult::Exact(steps);
+    }
+
+    let mut assignment_pool: Vec<Assignment> = Vec::new();
+
+    //track visited, parents, and cost from parent
+    let mut visited_with_parents: FxHashMap<u64, Option<(u64, u32)>> = FxHashMap::default();
+    visited_with_parents.insert(node_fingerprint(&new_root_node), None);
+
+    let cap = target_steps as usize + 1;
+    let mut buckets: Vec<Vec<BfsNode>> = vec![Vec::new(); cap];
+    buckets[0].push(new_root_node);
+
+    
+
+
+    RelaxedResult::Exact(steps)
 }

@@ -48,8 +48,8 @@ use crate::types::{Dir, FlatIdx, QBlockId, Tile};
 pub struct BfsNode {
     player: FlatIdx,
     steps: u32,
-    qstate: QState,
-    box_state: BoxState,
+    pub qstate: QState,
+    pub box_state: BoxState,
     /// Index into the shared assignment pool for a valid assignment of `qstate`
     /// not covered by any known shortcut. `None` means not assigned yet; a
     /// lazy refresh will fill it. While the node is in the queue, we guarantee
@@ -196,7 +196,7 @@ pub fn refresh_witness_in_pool(
     }
 
     // Fallback: expensive search for a fresh witness.
-    if let Some(a) = find_uncovered_witness(qstate, slots, num_qbs, shortcuts) {
+    if let Some(a) = find_uncovered_witness(qstate, slots, num_qbs, shortcuts, None) {
         pool.push(a);
         if pool.len() % 1000 == 0{
             println!("Witness pool size: {}", pool.len());
@@ -382,7 +382,7 @@ pub fn forward_bfs(
                     initial_qstate.invalidate(i);
                 }
             }
-            if !has_valid_assignment(&initial_qstate, &slots, num_qbs) {
+            if !has_valid_assignment(&initial_qstate, &slots, num_qbs, None) {
                 return BfsResult::AllShortcut;
             }
         }
@@ -410,7 +410,7 @@ pub fn forward_bfs(
                     qs.invalidate(slot_idx);
                 }
             }
-            if has_valid_assignment(&qs, &slots, num_qbs) {
+            if has_valid_assignment(&qs, &slots, num_qbs, None) {
                 filtered_shortcut_qstates.push(qs);
             }
         }
@@ -445,12 +445,12 @@ pub fn forward_bfs(
                 invalidated_any = true;
             }
         }
-        if invalidated_any && !has_valid_assignment(&initial_qstate, &slots, num_qbs) {
+        if invalidated_any && !has_valid_assignment(&initial_qstate, &slots, num_qbs, None) {
             return BfsResult::AllShortcut;
         }
     }
 
-    let initial_witness_idx = match find_uncovered_witness(&initial_qstate, &slots, num_qbs, &shortcut_constraints) {
+    let initial_witness_idx = match find_uncovered_witness(&initial_qstate, &slots, num_qbs, &shortcut_constraints, None) {
         Some(w) => { assignment_pool.push(w); Some(assignment_pool.len() - 1) },
         None => return BfsResult::AllShortcut,
     };
@@ -582,7 +582,7 @@ pub fn forward_bfs(
             }
         }
         // If, after applying ruled_out, this QState still has valid assignments, keep it.
-        if has_valid_assignment(&qs, &slots, num_qbs) {
+        if has_valid_assignment(&qs, &slots, num_qbs, None) {
             filtered_shortcut_qstates.push(qs);
         }
     }
@@ -644,7 +644,7 @@ fn build_indeterminate_from_shortcuts(
                 qs.invalidate(slot_idx);
             }
         }
-        if has_valid_assignment(&qs, slots, num_qbs) {
+        if has_valid_assignment(&qs, slots, num_qbs, None) {
             filtered_shortcut_qstates.push(qs);
         }
     }
@@ -809,7 +809,7 @@ fn process_bfs_node(
         return;
     }
     //if verbose > 0 && visited.len() % 100000 == 0 {
-    if visited.len() % 1000 == 0 {
+    if visited.len() % 1000000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
 
@@ -875,6 +875,7 @@ fn process_bfs_node(
     let steps_remaining = target_steps - node.steps;
     match relaxed_solve(
         board,
+        slots,
         node.player,
         exit,
         steps_remaining,
