@@ -39,7 +39,7 @@ use crate::qstate::{
     slot_has_uncovered_assignment, slot_mask_at, Assignment, QState, Shortcut,
     ShortcutConstraints, StartSlot, INVALID, INVALID_SLOT, MAX_STARTS,
 };
-//use crate::bfsrelaxed::{RelaxedCache,RelaxedResult, relaxed_solve};
+use crate::bfsrelaxed::{RelaxedCache,RelaxedResult, relaxed_solve};
 use crate::types::{Dir, FlatIdx, QBlockId, Tile};
 
 // ── BfsNode ───────────────────────────────────────────────────────────────────
@@ -66,13 +66,13 @@ pub struct SearchContext {
     pub covered_mask: u128,
     pub static_walls: u128,
     pub static_boxes: u128,
-    pub inner_mask: u128,
+    pub static_inner_mask: u128,
     /// For each direction, a bitmask of tiles that can be pushed in that direction.
     /// A tile is pushable in a direction if:
     ///   (a) it holds a concrete box whose push_mask includes the direction, OR
     ///   (b) it holds at least one valid QB slot whose push_mask includes the direction.
     pub pushable: [u128; 4],
-    //pub relaxed_cache: RelaxedCache,
+    pub relaxed_cache: RelaxedCache,
 }
 
 // ── Fingerprint ───────────────────────────────────────────────────────────────
@@ -264,11 +264,15 @@ pub fn forward_bfs(
 
     let mut static_walls = 0u128;
     let mut static_boxes = 0u128;
+    let mut static_inner_mask = 0u128;
     for i in 0..(board.width * board.height) as usize {
         match board.tiles[i] {
             Tile::Wall => static_walls |= 1u128 << i,
             Tile::Box => static_boxes |= 1u128 << i,
             _ => {}
+        }
+        if board.in_inner(board.coords(i as u16).0, board.coords(i as u16).1) {
+            static_inner_mask |= 1u128 << i;
         }
     }
 
@@ -460,9 +464,9 @@ pub fn forward_bfs(
         covered_mask: 0,
         static_walls,
         static_boxes,
-        inner_mask: 0,
+        static_inner_mask,
         pushable: [0; 4],
-        //relaxed_cache: RelaxedCache::new(),
+        relaxed_cache: RelaxedCache::new(),
     };
 
     let cap = target_steps as usize + 1;
@@ -729,29 +733,27 @@ fn process_bfs_node(
         ctx.box_occupancy |= 1u128 << dest;
     }
 
-    // Compute inner_mask: bitmask of tiles on the interior of the board.
-    ctx.inner_mask = {
-        let mut m = 0u128;
-        for y in 1..board.height - 1 {
-            for x in 1..board.width - 1 {
-                m |= 1u128 << board.flat(x, y);
-            }
-        }
-        m
-    };
-
     // Compute pushable: for each direction, a bitmask of tiles that can be pushed in that direction.
     ctx.pushable = [0; 4];
-    for (dir_idx, &dir) in Dir::all().iter().enumerate() {
+    for &dir in Dir::all().iter() {
+        let dir_idx = dir.idx();
         // Check concrete boxes: iterate through set bits in box_occupancy
         {
             let mut remaining = ctx.box_occupancy;
             while remaining != 0 {
-                let orig = remaining.trailing_zeros() as usize as FlatIdx;
+                let cur = remaining.trailing_zeros() as usize as FlatIdx;
+                let mut orig = cur;
+                //check if any moved box maps to orig and if so, use the original position for push mask checking
+                for &(moved_from, moved_to) in node.box_state.moved.iter() {
+                    if moved_to == orig {
+                        orig = moved_from;
+                        break;
+                    }
+                }
                 remaining &= remaining - 1; // Clear the lowest set bit
                 let box_mask = board.get_box_push_mask(orig);
                 if (box_mask & dir.mask()) > 0 {
-                    ctx.pushable[dir_idx] |= 1u128 << orig;
+                    ctx.pushable[dir_idx] |= 1u128 << cur;
                 }
             }
         }
@@ -767,7 +769,7 @@ fn process_bfs_node(
 
     // Calculate bitmask of tiles that MUST be covered (walls, static boxes, moved boxes,
     // and QBs with only one valid current position).
-    ctx.covered_mask = ctx.static_walls | ctx.box_occupancy;
+    ctx.covered_mask = ctx.static_walls | ctx.box_occupancy | !ctx.static_inner_mask;
     let valid_mask = node.qstate.valid_mask();
     for &mask in qb_masks {
         let qb_valid = mask & valid_mask;
@@ -871,22 +873,20 @@ fn process_bfs_node(
     }
 
     let steps_remaining = target_steps - node.steps;
-    /*match relaxed_solve(
+    match relaxed_solve(
+        board,
         node.player,
         exit,
         steps_remaining,
-        board,
-        &node.qstate,
-        slots,
-        &node.box_state,
-        ctx.static_walls,
-        ctx.static_boxes,
-        &mut ctx.relaxed_cache,
+        verbose,
+        Some(100_000),
+        &node,
+        ctx,
     ) {
         RelaxedResult::Deadlock => {
-            if node.steps < 15{
-                println!("DEADLOCK with qstate {:?} and box_state {:?} at step {}, pruning!", node.qstate.cur, node.box_state.moved, node.steps);
-            }
+            //if node.steps < 15{
+            //    println!("DEADLOCK with qstate {:?} and box_state {:?} at step {}, pruning!", node.qstate.cur, node.box_state.moved, node.steps);
+            //}
             return;
         }
         RelaxedResult::LowerBound(lower_bound) if lower_bound > steps_remaining => {
@@ -895,7 +895,7 @@ fn process_bfs_node(
         },
         
         RelaxedResult::LowerBound(_) | RelaxedResult::Exact(_) => {}
-    }*/
+    }
 
 
     expand_node_children(
@@ -955,10 +955,10 @@ fn expand_node_children(
         let (cx, cy) = board.coords(curr);
         for dir in Dir::all() {
             if let Some((nx, ny)) = dir.apply(cx, cy) {
-                if !board.in_inner(nx, ny) {
+                let next = board.flat(nx, ny);
+                if (1u128 << next) & ctx.static_inner_mask == 0 {
                     continue;
                 }
-                let next = board.flat(nx, ny);
 
                 if dists[next as usize] == u8::MAX {
                     let bit = 1u128 << next;
@@ -1087,8 +1087,24 @@ fn simulate_step(
 ) -> SmallVec<[BfsNode; 2]> {
     let mut results = SmallVec::new();
     let (cx, cy) = board.coords(node.player);
-    let next = match dir.apply(cx, cy).filter(|&(nx, ny)| board.in_inner(nx, ny)) {
-        Some((nx, ny)) => board.flat(nx, ny),
+    
+    // Compute inner_mask locally for this function (called infrequently during quick shortcut check)
+    let mut inner_mask = 0u128;
+    for y in 1..board.height - 1 {
+        for x in 1..board.width - 1 {
+            inner_mask |= 1u128 << board.flat(x, y);
+        }
+    }
+    
+    let next = match dir.apply(cx, cy) {
+        Some((nx, ny)) => {
+            let n = board.flat(nx, ny);
+            if (1u128 << n) & inner_mask != 0 {
+                n
+            } else {
+                return results;
+            }
+        }
         None => return results,
     };
 
@@ -1099,8 +1115,14 @@ fn simulate_step(
     let beyond_opt: Option<FlatIdx> = {
         let (tx, ty) = board.coords(next);
         dir.apply(tx, ty)
-            .filter(|&(bx, by)| board.in_inner(bx, by))
-            .map(|(bx, by)| board.flat(bx, by))
+            .and_then(|(bx, by)| {
+                let b = board.flat(bx, by);
+                if (1u128 << b) & inner_mask != 0 {
+                    Some(b)
+                } else {
+                    None
+                }
+            })
     };
 
     match t {
@@ -1170,8 +1192,9 @@ fn simulate_step(
                         box_state.move_box(orig, beyond);
                         // Move of concrete box crushes any quantum interpretations at 'beyond'.
                         qstate.invalidate_all(beyond);
+                        // Check if box can be pushed in this direction by checking push_mask
                         let box_dir_mask = board.get_box_push_mask(next);
-                        if (box_dir_mask & dir.mask()) > 0{
+                        if (box_dir_mask & dir.mask()) > 0 {
                             if let Some(child) = make_child(
                                 qstate,
                                 box_state,
@@ -1435,8 +1458,10 @@ fn handle_player_move_to_quantum_or_floor(
     let beyond_opt: Option<FlatIdx> = {
         let (tx, ty) = board.coords(target);
         dir.apply(tx, ty)
-            .filter(|&(bx, by)| board.in_inner(bx, by))
-            .map(|(bx, by)| board.flat(bx, by))
+            .and_then(|(bx, by)| {
+                let b = board.flat(bx, by);
+                if (1u128 << b) & ctx.static_inner_mask != 0 { Some(b) } else { None }
+            })
     };
 
     if let Some(mut child) = make_child_case4(
@@ -1486,8 +1511,10 @@ fn handle_player_move_to_box(
     let beyond_opt: Option<FlatIdx> = {
         let (tx, ty) = board.coords(target);
         dir.apply(tx, ty)
-            .filter(|&(bx, by)| board.in_inner(bx, by))
-            .map(|(bx, by)| board.flat(bx, by))
+            .and_then(|(bx, by)| {
+                let b = board.flat(bx, by);
+                if (1u128 << b) & ctx.static_inner_mask != 0 { Some(b) } else { None }
+            })
     };
 
     let beyond = match beyond_opt {
@@ -1505,9 +1532,6 @@ fn handle_player_move_to_box(
     if (box_mask & dir.mask()) == 0 {
         return;
     }
-    // NOTE: An alternative approach using SearchContext.pushable would be:
-    // if (1u128 << orig) & ctx.pushable[dir.idx()] == 0 { return; }
-    // This would combine checks for both concrete boxes and quantum blocks in one bitmask lookup.
     box_state.move_box(orig, beyond);
     // Moving a concrete box into 'beyond' crushes any quantum interpretation there.
     qstate.invalidate_all(beyond);
