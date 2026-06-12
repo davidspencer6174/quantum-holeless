@@ -6,6 +6,7 @@ use smallvec::SmallVec;
 
 pub const INVALID: FlatIdx = u16::MAX;
 pub const INVALID_SLOT: u8 = u8::MAX;
+pub const FREE_SLOT: u8 = 127;
 pub const MAX_STARTS: usize = 48;
 pub const MAX_TILES: usize = 100; // Matches board::MAX_TILES
 
@@ -237,8 +238,8 @@ impl QState {
 // ── Assignment validity and coverage ─────────────────────────────────────────
 
 /// Returns true iff there exists at least one valid assignment of `qstate`.
-pub fn has_valid_assignment(qstate: &QState, slots: &[StartSlot], num_qbs: usize, automatically_satisfied_qb_ids: Option<&[u8]>) -> bool {
-    find_uncovered_witness(qstate, slots, num_qbs, &[], automatically_satisfied_qb_ids).is_some()
+pub fn has_valid_assignment(qstate: &QState, slots: &[StartSlot], num_qbs: usize) -> bool {
+    find_uncovered_witness(qstate, slots, num_qbs, &[]).is_some()
 }
 
 /// Returns true iff assignment `a` (slot indices per QB) is a valid assignment
@@ -292,7 +293,6 @@ pub fn find_uncovered_witness(
     slots: &[StartSlot],
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
-    automatically_satisfied_qb_ids: Option<&[u8]>,
 ) -> Option<Assignment> {
     if num_qbs == 0 {
         return if shortcuts.is_empty() { Some(SmallVec::new()) } else { None };
@@ -323,7 +323,6 @@ pub fn find_uncovered_witness(
         qstate: &QState,
         shortcuts: &[ShortcutConstraints],
         result: &mut Option<Assignment>,
-        automatically_satisfied_qb_ids: Option<&[u8]>,
     ) {
         if result.is_some() {
             return;
@@ -345,7 +344,7 @@ pub fn find_uncovered_witness(
         }
 
         let qb = qb_order[depth] as usize;
-        if automatically_satisfied_qb_ids.map_or(false, |ids| ids.contains(&(qb as u8))) {
+        if qstate.cur[choices[qb][0] as usize] == FREE_SLOT {
             // If this QB is automatically satisfied, we can skip it without choosing a slot.
             backtrack(
                 depth + 1,
@@ -357,7 +356,6 @@ pub fn find_uncovered_witness(
                 qstate,
                 shortcuts,
                 result,
-                automatically_satisfied_qb_ids,
             );
             return;
         }
@@ -381,7 +379,6 @@ pub fn find_uncovered_witness(
                 qstate,
                 shortcuts,
                 result,
-                automatically_satisfied_qb_ids,
             );
             chosen.pop();
         }
@@ -397,7 +394,6 @@ pub fn find_uncovered_witness(
         qstate,
         shortcuts,
         &mut result,
-        automatically_satisfied_qb_ids,
     );
 
     result
@@ -413,14 +409,13 @@ pub fn refresh_witness(
     slots: &[StartSlot],
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
-    automatically_satisfied_qb_ids: Option<&[u8]>,
 ) -> Option<Assignment> {
     // Fast path: witness still valid and uncovered.
     if assignment_valid_in(witness, qstate) && !assignment_covered(witness, shortcuts) {
         return Some(witness.clone());
     }
     // Search for a new witness.
-    find_uncovered_witness(qstate, slots, num_qbs, shortcuts, automatically_satisfied_qb_ids)
+    find_uncovered_witness(qstate, slots, num_qbs, shortcuts)
 }
 
 /// Returns true iff slot `forced` participates in some valid assignment of

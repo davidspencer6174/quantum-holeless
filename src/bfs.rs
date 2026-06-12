@@ -37,24 +37,55 @@ use crate::deadlock::{effective_tile, is_deadlock, BoxState};
 use crate::qstate::{
     any_slots_at, find_uncovered_witness, has_valid_assignment,
     slot_has_uncovered_assignment, slot_mask_at, Assignment, QState, Shortcut,
-    ShortcutConstraints, StartSlot, INVALID, INVALID_SLOT, MAX_STARTS,
+    ShortcutConstraints, StartSlot, INVALID, INVALID_SLOT, FREE_SLOT, MAX_STARTS,
 };
 use crate::bfsrelaxed::{RelaxedCache,RelaxedResult, relaxed_solve};
 use crate::types::{Dir, FlatIdx, QBlockId, Tile};
+
+// ── VisitedTracker trait ───────────────────────────────────────────────────────
+//
+// Abstract interface for visited state tracking. Allows both simple FxHashSet
+// and map-based tracking (e.g., with parent pointers).
+
+pub trait VisitedTracker {
+    fn contains(&self, fp: u64) -> bool;
+    fn insert(&mut self, fp: u64) -> bool;
+    fn len(&self) -> usize;
+    /// Called after a child fingerprint is successfully inserted.
+    /// The default implementation is a no-op; override to record parent pointers.
+    fn record_parent(&mut self, _child_fp: u64, _parent_fp: u64, _steps_so_far: u32) {}
+}
+
+// Wrapper for FxHashSet<u64>
+pub struct SimpleVisited(pub FxHashSet<u64>);
+
+impl VisitedTracker for SimpleVisited {
+    fn contains(&self, fp: u64) -> bool {
+        self.0.contains(&fp)
+    }
+
+    fn insert(&mut self, fp: u64) -> bool {
+        self.0.insert(fp)
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 // ── BfsNode ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 pub struct BfsNode {
-    player: FlatIdx,
-    steps: u32,
+    pub player: FlatIdx,
+    pub steps: u32,
     pub qstate: QState,
     pub box_state: BoxState,
     /// Index into the shared assignment pool for a valid assignment of `qstate`
     /// not covered by any known shortcut. `None` means not assigned yet; a
     /// lazy refresh will fill it. While the node is in the queue, we guarantee
     /// that this resolves to Some(index) (we prune nodes without a witness).
-    witness_idx: Option<usize>,
+    pub witness_idx: Option<usize>,
     //history: SmallVec<[Dir; 16]>,
 }
 
@@ -196,7 +227,7 @@ pub fn refresh_witness_in_pool(
     }
 
     // Fallback: expensive search for a fresh witness.
-    if let Some(a) = find_uncovered_witness(qstate, slots, num_qbs, shortcuts, None) {
+    if let Some(a) = find_uncovered_witness(qstate, slots, num_qbs, shortcuts) {
         pool.push(a);
         if pool.len() % 1000 == 0{
             println!("Witness pool size: {}", pool.len());
@@ -204,6 +235,111 @@ pub fn refresh_witness_in_pool(
         return Some(pool.len() - 1);
     }
     None
+}
+
+// ── BfsCallbacks trait ────────────────────────────────────────────────────────
+//
+// Decouples `process_bfs_node` from the shortcut/result bookkeeping that is
+// specific to the forward BFS.  `RelaxedBfsCallbacks` (in bfsrelaxed.rs)
+// provides no-op stubs so that `relaxed_solve` can call `process_bfs_node`
+// without carrying any shortcut state.
+
+pub trait BfsCallbacks {
+    /// Called when a node reaches the exit strictly before `target_steps`.
+    /// The impl is responsible for recording the shortcut qstate if desired.
+    fn on_shortcut_found(&mut self, qstate: &QState, slots: &[StartSlot], verbose: u8);
+
+    /// Called when a node reaches the exit at exactly `target_steps`.
+    /// `shortcut_constraints` is passed in (rather than accessed through
+    /// `self`) to avoid a double-borrow when the caller holds both the
+    /// callbacks and the constraints.
+    fn on_clean_exit(
+        &mut self,
+        node: &BfsNode,
+        pool: &[Assignment],
+        slots: &[StartSlot],
+        num_qbs: usize,
+        shortcut_constraints: &[ShortcutConstraints],
+    );
+
+    /// Returns `true` if the zero-QB fast-path should prune this node because
+    /// every assignment is already a shortcut and no clean exit has been seen.
+    /// The forward BFS checks `any_shortcut_found && !any_clean_found`;
+    /// the relaxed BFS always returns `false`.
+    fn should_prune_all_shortcut(&self, num_qbs: usize) -> bool;
+
+    /// The current shortcut constraints, used for witness refresh and the
+    /// `expand_node_children` call.  Returns an empty slice for the relaxed BFS.
+    fn shortcut_constraints(&self) -> &[ShortcutConstraints];
+}
+
+// ── ForwardBfsCallbacks ───────────────────────────────────────────────────────
+
+pub struct ForwardBfsCallbacks<'a> {
+    pub shortcut_constraints: &'a mut Vec<ShortcutConstraints>,
+    pub shortcut_qstate_set:  &'a mut FxHashSet<QState>,
+    pub any_shortcut_found:   &'a mut bool,
+    pub any_clean_found:      &'a mut bool,
+    pub slot_has_clean:       &'a mut Vec<bool>,
+}
+
+impl<'a> BfsCallbacks for ForwardBfsCallbacks<'a> {
+    fn on_shortcut_found(&mut self, qstate: &QState, slots: &[StartSlot], verbose: u8) {
+        *self.any_shortcut_found = true;
+        if verbose > 0 {
+            println!("Found shortcut at step with qstate {:?}", qstate.cur);
+        }
+        add_shortcut_qstate(
+            self.shortcut_constraints,
+            self.shortcut_qstate_set,
+            qstate.clone(),
+            slots,
+        );
+        if verbose > 0 {
+            println!("Shortcut:");
+            for c in self.shortcut_constraints.iter() {
+                println!("{}", c.invalid_slots_mask);
+                for &(a, b) in c.collision_pairs.iter() {
+                    println!("  Collision between slot {} and slot {}", a, b);
+                }
+            }
+        }
+    }
+
+    fn on_clean_exit(
+        &mut self,
+        node: &BfsNode,
+        pool: &[Assignment],
+        slots: &[StartSlot],
+        num_qbs: usize,
+        shortcut_constraints: &[ShortcutConstraints],
+    ) {
+        *self.any_clean_found = true;
+        if let Some(idx) = node.witness_idx {
+            for &slot_i in pool[idx].iter() {
+                self.slot_has_clean[slot_i as usize] = true;
+            }
+        }
+        for i in 0..slots.len() {
+            if self.slot_has_clean[i] {
+                continue;
+            }
+            if !node.qstate.is_valid(i) {
+                continue;
+            }
+            if slot_has_uncovered_assignment(i, &node.qstate, slots, num_qbs, shortcut_constraints) {
+                self.slot_has_clean[i] = true;
+            }
+        }
+    }
+
+    fn should_prune_all_shortcut(&self, num_qbs: usize) -> bool {
+        num_qbs == 0 && *self.any_shortcut_found && !*self.any_clean_found
+    }
+
+    fn shortcut_constraints(&self) -> &[ShortcutConstraints] {
+        self.shortcut_constraints
+    }
 }
 
 // ── forward_bfs ───────────────────────────────────────────────────────────────
@@ -382,7 +518,7 @@ pub fn forward_bfs(
                     initial_qstate.invalidate(i);
                 }
             }
-            if !has_valid_assignment(&initial_qstate, &slots, num_qbs, None) {
+            if !has_valid_assignment(&initial_qstate, &slots, num_qbs) {
                 return BfsResult::AllShortcut;
             }
         }
@@ -410,7 +546,7 @@ pub fn forward_bfs(
                     qs.invalidate(slot_idx);
                 }
             }
-            if has_valid_assignment(&qs, &slots, num_qbs, None) {
+            if has_valid_assignment(&qs, &slots, num_qbs) {
                 filtered_shortcut_qstates.push(qs);
             }
         }
@@ -445,17 +581,17 @@ pub fn forward_bfs(
                 invalidated_any = true;
             }
         }
-        if invalidated_any && !has_valid_assignment(&initial_qstate, &slots, num_qbs, None) {
+        if invalidated_any && !has_valid_assignment(&initial_qstate, &slots, num_qbs) {
             return BfsResult::AllShortcut;
         }
     }
 
-    let initial_witness_idx = match find_uncovered_witness(&initial_qstate, &slots, num_qbs, &shortcut_constraints, None) {
+    let initial_witness_idx = match find_uncovered_witness(&initial_qstate, &slots, num_qbs, &shortcut_constraints) {
         Some(w) => { assignment_pool.push(w); Some(assignment_pool.len() - 1) },
         None => return BfsResult::AllShortcut,
     };
 
-    let mut visited: FxHashSet<u64> = FxHashSet::default();
+    let mut visited = SimpleVisited(FxHashSet::default());
 
     //let mut relaxed_cache = RelaxedCache::new();
     let mut ctx = SearchContext {
@@ -479,45 +615,63 @@ pub fn forward_bfs(
     });
 
     // ── Main loop ─────────────────────────────────────────────────────────
+    //
+    // `callbacks` is scoped to this block so its mutable borrows of
+    // `shortcut_constraints` and `shortcut_qstate_set` are released before
+    // we pass those to `build_indeterminate_from_shortcuts` below.
 
-    for step in 0..cap {
-        let mut bucket = std::mem::take(&mut buckets[step]);
-        while let Some(node) = bucket.pop() {
-            process_bfs_node(
-                node,
-                step as u32,
-                target_steps,
-                exit,
-                board,
-                &slots,
-                num_qbs,
-                &qb_masks,
-                &mut ctx,
-                &mut visited,
-                &mut shortcut_constraints,
-                &mut shortcut_qstate_set,
-                &mut any_shortcut_found,
-                &mut any_clean_found,
-                &mut slot_has_clean,
-                &mut buckets,
-                &mut assignment_pool,
-                verbose,
-            );
-        }
-        buckets[step] = bucket;
+    let state_limit_hit = {
+        let mut callbacks = ForwardBfsCallbacks {
+            shortcut_constraints: &mut shortcut_constraints,
+            shortcut_qstate_set:  &mut shortcut_qstate_set,
+            any_shortcut_found:   &mut any_shortcut_found,
+            any_clean_found:      &mut any_clean_found,
+            slot_has_clean:       &mut slot_has_clean,
+        };
 
-        if let Some(limit) = state_limit {
-            if visited.len() > limit as usize {
-                return build_indeterminate_from_shortcuts(
-                    &initial_qstate,
+        let mut limit_hit = false;
+        for step in 0..cap {
+            let mut bucket = std::mem::take(&mut buckets[step]);
+            while let Some(node) = bucket.pop() {
+                process_bfs_node(
+                    node,
+                    step as u32,
+                    target_steps,
+                    exit,
+                    board,
                     &slots,
                     num_qbs,
-                    &shortcut_constraints,
-                    &shortcut_qstate_set,
-                    &orig_ids,
+                    &qb_masks,
+                    &mut ctx,
+                    &mut visited,
+                    &mut callbacks,
+                    &mut buckets,
+                    &mut assignment_pool,
+                    verbose,
                 );
             }
+            buckets[step] = bucket;
+
+            if let Some(limit) = state_limit {
+                if visited.len() > limit as usize {
+                    limit_hit = true;
+                    break;
+                }
+            }
         }
+        limit_hit
+        // `callbacks` drops here, releasing mutable borrows.
+    };
+
+    if state_limit_hit {
+        return build_indeterminate_from_shortcuts(
+            &initial_qstate,
+            &slots,
+            num_qbs,
+            &shortcut_constraints,
+            &shortcut_qstate_set,
+            &orig_ids,
+        );
     }
 
     // ── Compute result ────────────────────────────────────────────────────
@@ -582,7 +736,7 @@ pub fn forward_bfs(
             }
         }
         // If, after applying ruled_out, this QState still has valid assignments, keep it.
-        if has_valid_assignment(&qs, &slots, num_qbs, None) {
+        if has_valid_assignment(&qs, &slots, num_qbs) {
             filtered_shortcut_qstates.push(qs);
         }
     }
@@ -644,7 +798,7 @@ fn build_indeterminate_from_shortcuts(
                 qs.invalidate(slot_idx);
             }
         }
-        if has_valid_assignment(&qs, slots, num_qbs, None) {
+        if has_valid_assignment(&qs, slots, num_qbs) {
             filtered_shortcut_qstates.push(qs);
         }
     }
@@ -662,7 +816,7 @@ fn build_indeterminate_from_shortcuts(
 }
 
 #[inline(never)]
-fn process_bfs_node(
+pub fn process_bfs_node<C: BfsCallbacks>(
     mut node: BfsNode,
     step: u32,
     target_steps: u32,
@@ -672,55 +826,35 @@ fn process_bfs_node(
     num_qbs: usize,
     qb_masks: &[u64],
     ctx: &mut SearchContext,
-    visited: &mut FxHashSet<u64>,
-    shortcut_constraints: &mut Vec<ShortcutConstraints>,
-    shortcut_qstate_set: &mut FxHashSet<QState>,
-    any_shortcut_found: &mut bool,
-    any_clean_found: &mut bool,
-    slot_has_clean: &mut [bool],
+    visited: &mut dyn VisitedTracker,
+    callbacks: &mut C,
     buckets: &mut [Vec<BfsNode>],
     pool: &mut Vec<Assignment>,
     verbose: u8,
 ) {
 
     let fp = node_fingerprint(&node);
-    if verbose > 0 && step < 5 {
+    if verbose > 0 && step < 20 {
         println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
             node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
     }
-    
 
-    
-    if visited.contains(&fp) {
-        //if is_on_target_path {
-        //    println!("[TRACE] Target path node pruned by duplicate visited fingerprint!");
-        //}
-        //println!("Pruned node at step {} with player at ({}, {}), qstate {:?}, box_state {:?} due to visited fingerprint {:016x}",
-        //    node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp);
-        //println!("qstate len is {} with valid_mask {:b}", node.qstate.len, node.qstate.valid_mask());
+    //println!("Checking for fp {:016x} against visited of len {}", fp, visited.len());
+    if visited.contains(fp) {
+        //println!("Visited contained fp");
         return;
     }
 
     // ── Imputation Pruning ────────────────────────────────────────
     let imputation_verbose = verbose;
     if num_qbs > 0 && try_prune_by_imputation(&node, visited, board, slots, imputation_verbose) {
-        //if is_on_target_path {
-        //    println!("[TRACE] Target path node pruned by imputation!");
-        //}
         return;
-    }
-
-    if (verbose > 1) && step < 10 {
-        println!("Visiting board at step {} with player at ({}, {}), qstate {:?}, box_state {:?}",
-            node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved);
-        //print!("{}", crate::io::format_board_header(board, exit, &format!("BFS Node (Step {})", node.steps)));
-        //print!("{}", crate::io::format_board(board, exit));
     }
 
     // ── Pre-compute Occupancy and Coverage ────────────────────────
     ctx.q_occupancy = 0;
     for &p in node.qstate.cur[..node.qstate.len].iter() {
-        if p != INVALID_SLOT {
+        if p != INVALID_SLOT && p != FREE_SLOT {
             ctx.q_occupancy |= 1u128 << p;
         }
     }
@@ -732,6 +866,7 @@ fn process_bfs_node(
     for &(_, dest) in node.box_state.moved.iter() {
         ctx.box_occupancy |= 1u128 << dest;
     }
+    
 
     // Compute pushable: for each direction, a bitmask of tiles that can be pushed in that direction.
     ctx.pushable = [0; 4];
@@ -755,6 +890,7 @@ fn process_bfs_node(
                 if (box_mask & dir.mask()) > 0 {
                     ctx.pushable[dir_idx] |= 1u128 << cur;
                 }
+                
             }
         }
         // Check QB slots
@@ -766,6 +902,8 @@ fn process_bfs_node(
             }
         }
     }
+
+    
 
     // Calculate bitmask of tiles that MUST be covered (walls, static boxes, moved boxes,
     // and QBs with only one valid current position).
@@ -805,19 +943,26 @@ fn process_bfs_node(
         return;
     }
 
+    //println!("Inserting fp {:016x}", fp);
     if !visited.insert(fp) {
         return;
     }
-    //if verbose > 0 && visited.len() % 100000 == 0 {
     if visited.len() % 1000000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
 
     // ── Lazy witness refresh ──────────────────────────────────────
-    if num_qbs == 0 && *any_shortcut_found && !*any_clean_found {
+    if callbacks.should_prune_all_shortcut(num_qbs) {
         return;
     }
-    if let Some(idx) = refresh_witness_in_pool(node.witness_idx, pool, &node.qstate, slots, num_qbs, shortcut_constraints) {
+    if let Some(idx) = refresh_witness_in_pool(
+        node.witness_idx,
+        pool,
+        &node.qstate,
+        slots,
+        num_qbs,
+        callbacks.shortcut_constraints(),
+    ) {
         node.witness_idx = Some(idx);
     } else {
         return;
@@ -826,44 +971,20 @@ fn process_bfs_node(
     // ── At exit? ──────────────────────────────────────────────────
     if node.player == exit {
         if node.steps < target_steps {
-            *any_shortcut_found = true;
             if num_qbs > 0 {
-                if verbose > 0 {
-                    println!("Found shortcut at step {} with qstate {:?}",
-                        node.steps, node.qstate.cur);
-                }
-                add_shortcut_qstate(shortcut_constraints, shortcut_qstate_set, node.qstate.clone(), slots);
-                if verbose > 0{
-                    println!("Shortcut:");
-                    for c in shortcut_constraints.iter() {
-                        println!("{}", c.invalid_slots_mask);
-                        for &(a, b) in c.collision_pairs.iter() {
-                            println!("  Collision between slot {} and slot {}", a, b);
-                        }
-                    }
-                }
+                callbacks.on_shortcut_found(&node.qstate, slots, verbose);
+            } else {
+                // zero-QB shortcut: still need to set any_shortcut_found
+                callbacks.on_shortcut_found(&node.qstate, slots, verbose);
             }
             return;
         }
         if node.steps == target_steps {
-            *any_clean_found = true;
-            if let Some(idx) = node.witness_idx {
-                for &slot_i in pool[idx].iter() {
-                    slot_has_clean[slot_i as usize] = true;
-                }
-            }
-            for i in 0..slots.len() {
-                if slot_has_clean[i] {
-                    continue;
-                }
-                if !node.qstate.is_valid(i) {
-                    continue;
-                }
-                if slot_has_uncovered_assignment(i, &node.qstate, slots, num_qbs, shortcut_constraints)
-                {
-                    slot_has_clean[i] = true;
-                }
-            }
+            // Snapshot the constraints slice before the mutable borrow in on_clean_exit.
+            // We copy into a local Vec so the borrow checker is happy.
+            let constraints_snapshot: Vec<ShortcutConstraints> =
+                callbacks.shortcut_constraints().to_vec();
+            callbacks.on_clean_exit(&node, pool, slots, num_qbs, &constraints_snapshot);
             return;
         }
     }
@@ -872,8 +993,15 @@ fn process_bfs_node(
         return;
     }
 
+    let saved_q_occupancy   = ctx.q_occupancy;
+    let saved_box_occupancy = ctx.box_occupancy;
+    let saved_covered_mask  = ctx.covered_mask;
+    let saved_static_boxes  = ctx.static_boxes;
+    let saved_pushable      = ctx.pushable;
+
     let steps_remaining = target_steps - node.steps;
-    match relaxed_solve(
+    //println!("Running relaxed solve with node.steps = {}", node.steps);
+    let relaxed_result = relaxed_solve(
         board,
         slots,
         node.player,
@@ -883,39 +1011,55 @@ fn process_bfs_node(
         Some(100_000),
         &node,
         ctx,
-    ) {
+    );
+    
+    // Restore fields mutated by relaxed_solve before any early return.
+    ctx.q_occupancy   = saved_q_occupancy;
+    ctx.box_occupancy = saved_box_occupancy;
+    ctx.covered_mask  = saved_covered_mask;
+    ctx.static_boxes  = saved_static_boxes;
+    ctx.pushable      = saved_pushable;
+
+    match relaxed_result {
         RelaxedResult::Deadlock => {
-            //if node.steps < 15{
-            //    println!("DEADLOCK with qstate {:?} and box_state {:?} at step {}, pruning!", node.qstate.cur, node.box_state.moved, node.steps);
-            //}
+            //println!("Deadlock!");
             return;
         }
-        RelaxedResult::LowerBound(lower_bound) if lower_bound > steps_remaining => {
-            //println!("Lower bound pruning!");
+        RelaxedResult::AtLeast(lower_bound) if lower_bound > steps_remaining => {
+            //println!("Too high lower bound!");
             return
         },
-        
-        RelaxedResult::LowerBound(_) | RelaxedResult::Exact(_) => {}
+        RelaxedResult::AtLeast(_) | RelaxedResult::Exact(_) => {
+            //println!("Result was exact or lower bound");
+        }
     }
 
+    // Snapshot shortcut constraints as a plain slice for expand_node_children.
+    // We need an immutable view at this point; ForwardBfsCallbacks wraps a &mut Vec
+    // so we can't hold both at once without an intermediate borrow.
+    let shortcuts_snapshot: Vec<ShortcutConstraints> =
+        callbacks.shortcut_constraints().to_vec();
 
     expand_node_children(
         &node,
+        fp,
         target_steps,
         exit,
         board,
         slots,
         num_qbs,
-        shortcut_constraints,
+        &shortcuts_snapshot,
         buckets,
         pool,
         ctx,
+        visited,
     );
 }
 
 #[inline(never)]
-fn expand_node_children(
+pub fn expand_node_children(
     node: &BfsNode,
+    parent_fp: u64,
     target_steps: u32,
     exit: FlatIdx,
     board: &QuantumBoard,
@@ -925,6 +1069,7 @@ fn expand_node_children(
     buckets: &mut [Vec<BfsNode>],
     pool: &mut Vec<Assignment>,
     ctx: &mut SearchContext,
+    visited: &mut dyn VisitedTracker,
 ) {
     let mut dists = [u8::MAX; MAX_TILES];
     let mut queue = [0u16; MAX_TILES];
@@ -948,6 +1093,9 @@ fn expand_node_children(
                 let mut exit_node = node.clone();
                 exit_node.player = exit;
                 exit_node.steps = steps_at_curr;
+                let child_fp = node_fingerprint(&exit_node);
+                //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
+                visited.record_parent(child_fp, parent_fp, steps_at_curr as u32);
                 buckets[steps_at_curr as usize].push(exit_node);
             }
             continue;
@@ -977,8 +1125,9 @@ fn expand_node_children(
                             + (ny as i32 - ey as i32).unsigned_abs() as u32;
                         if dist_to_exit <= target_steps - new_steps {
                             try_push(
-                                board, slots, node, curr, next, dir, new_steps, exit, num_qbs,
-                                shortcuts, buckets, pool, target_steps, ctx,
+                                board, slots, node, parent_fp, curr, next, dir, new_steps, exit,
+                                num_qbs, shortcuts, buckets, pool, target_steps, ctx, visited,
+                                d as u32 + 1,
                             );
                         }
                     }
@@ -1033,31 +1182,16 @@ fn quick_shortcut_check(
     //start with any length 3 path, then take any suffix
     for d1 in Dir::all() {
         let n1s = simulate_step(root, d1, board, slots, num_qbs, exit, pool);
-        //if n1s.player == exit {
-        //    if n1s.steps < target_steps {
-        //        add_shortcut_qstate(shortcut_qstates, shortcut_qstate_set, n1s.qstate);
-        //    }
-        //}
         if n1s.is_empty() {
             continue;
         }
         for d2 in Dir::all() {
             let n2s = simulate_step(&n1s[0], d2, board, slots, num_qbs, exit, pool);
-            //if n2s.player == exit {
-            //    if n2s.steps < target_steps {
-            //        add_shortcut_qstate(shortcut_qstates, shortcut_qstate_set, n2s.qstate);
-            //    }
-            //}
             if n2s.is_empty() {
                 continue;
             }
             for d3 in Dir::all() {
                 let n3s = simulate_step(&n2s[0], d3, board, slots, num_qbs, exit, pool);
-                //if n3s.player == exit {
-                //    if n3s.steps < target_steps {
-                //        add_shortcut_qstate(shortcut_qstates, shortcut_qstate_set, n3s.qstate);
-                //    }
-                //}
                 if n3s.is_empty() {
                     continue;
                 }
@@ -1223,7 +1357,7 @@ fn simulate_step(
 /// to a valid current position.
 fn try_prune_by_imputation(
     node: &BfsNode,
-    visited: &FxHashSet<u64>,
+    visited: &dyn VisitedTracker,
     board: &QuantumBoard,
     slots: &[StartSlot],
     verbose: u8,
@@ -1284,7 +1418,7 @@ fn try_prune_by_imputation(
     // 1-slot imputation: Try re-validating one slot.
     for &(i, pos) in &possible {
         test_qs.set(i, pos); // Still need set() here for specific imputation
-        if visited.contains(&fingerprint_raw(node.player, &test_qs, &node.box_state)) {
+        if visited.contains(fingerprint_raw(node.player, &test_qs, &node.box_state)) {
             return true;
         }
         test_qs.invalidate(i);
@@ -1308,8 +1442,7 @@ fn try_prune_by_imputation(
                     );
                 }
                 test_qs.set(j, pos_j);
-                if visited.contains(&fingerprint_raw(node.player, &test_qs, &node.box_state)) {
-                    //println!("Pruning by imputation: re-validating slots {} and {} leads to a visited state", i, j);
+                if visited.contains(fingerprint_raw(node.player, &test_qs, &node.box_state)) {
                     return true;
                 }
                 test_qs.set(j, INVALID);
@@ -1328,6 +1461,7 @@ fn try_push(
     board: &QuantumBoard,
     slots: &[StartSlot],
     node: &BfsNode,
+    parent_fp: u64,
     from_pos: FlatIdx,
     target: FlatIdx,
     dir: Dir,
@@ -1339,6 +1473,8 @@ fn try_push(
     pool: &mut Vec<Assignment>,
     target_steps: u32,
     ctx: &mut SearchContext,
+    visited: &mut dyn VisitedTracker,
+    cost_to_child: u32,
 ) {
     let target_tile = effective_tile(target, board, &node.box_state);
 
@@ -1346,14 +1482,14 @@ fn try_push(
         Tile::Wall => return,
         Tile::Floor | Tile::Player | Tile::Quantum(_) => {
             handle_player_move_to_quantum_or_floor(
-                board, slots, node, from_pos, target, dir, new_steps, exit, num_qbs, shortcuts,
-                buckets, pool, target_steps, ctx,
+                board, slots, node, parent_fp, from_pos, target, dir, new_steps, exit, num_qbs,
+                shortcuts, buckets, pool, target_steps, ctx, visited, cost_to_child,
             );
         }
         Tile::Box => {
             handle_player_move_to_box(
-                board, slots, node, from_pos, target, dir, new_steps, exit, num_qbs, shortcuts,
-                buckets, pool, target_steps, ctx,
+                board, slots, node, parent_fp, from_pos, target, dir, new_steps, exit, num_qbs,
+                shortcuts, buckets, pool, target_steps, ctx, visited, cost_to_child,
             );
         }
     }
@@ -1429,6 +1565,7 @@ fn handle_player_move_to_quantum_or_floor(
     board: &QuantumBoard,
     slots: &[StartSlot],
     node: &BfsNode,
+    parent_fp: u64,
     _from_pos: FlatIdx, // Unused in this specific handler
     target: FlatIdx,
     dir: Dir,
@@ -1440,6 +1577,8 @@ fn handle_player_move_to_quantum_or_floor(
     pool: &mut Vec<Assignment>,
     target_steps: u32,
     ctx: &mut SearchContext,
+    visited: &mut dyn VisitedTracker,
+    cost_to_child: u32,
 ) {
     let target_mask = slot_mask_at(&node.qstate, target);
     if target_mask == 0 {
@@ -1465,7 +1604,7 @@ fn handle_player_move_to_quantum_or_floor(
             })
     };
 
-    if let Some(mut child) = make_child_case4(
+    if let Some(child) = make_child_case4(
         board,
         slots,
         qstate,
@@ -1482,8 +1621,9 @@ fn handle_player_move_to_quantum_or_floor(
     ) {
         // Pre-filter child before pushing to bucket
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
-            //child.history = node.history.clone();
-            //child.history.push(dir);
+            let child_fp = node_fingerprint(&child);
+            //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
+            visited.record_parent(child_fp, parent_fp, new_steps as u32);
             buckets[new_steps as usize].push(child);
         }
     }
@@ -1494,6 +1634,7 @@ fn handle_player_move_to_box(
     board: &QuantumBoard,
     slots: &[StartSlot],
     node: &BfsNode,
+    parent_fp: u64,
     _from_pos: FlatIdx, // Unused in this specific handler
     target: FlatIdx,
     dir: Dir,
@@ -1505,6 +1646,8 @@ fn handle_player_move_to_box(
     pool: &mut Vec<Assignment>,
     target_steps: u32,
     ctx: &mut SearchContext,
+    visited: &mut dyn VisitedTracker,
+    cost_to_child: u32,
 ) {
     let mut qstate = node.qstate.clone();
     let mut box_state = node.box_state.clone();
@@ -1537,7 +1680,7 @@ fn handle_player_move_to_box(
     // Moving a concrete box into 'beyond' crushes any quantum interpretation there.
     qstate.invalidate_all(beyond);
 
-    if let Some(mut child) = make_child(
+    if let Some(child) = make_child(
         qstate,
         box_state,
         target,
@@ -1550,8 +1693,9 @@ fn handle_player_move_to_box(
     ) {
         // Pre-filter child with Manhattan check before pushing to bucket
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
-            //child.history = node.history.clone();
-            //child.history.push(dir);
+            let child_fp = node_fingerprint(&child);
+            //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
+            visited.record_parent(child_fp, parent_fp, new_steps as u32);
             buckets[new_steps as usize].push(child);
         }
     }
@@ -1604,6 +1748,3 @@ fn make_child(
         //history: SmallVec::new(),
     })
 }
-
-
-

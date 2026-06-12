@@ -734,7 +734,7 @@ fn process_child(
     //}
     let use_quick_check = false;
     let start_time = std::time::Instant::now();
-    let mut bfs_result = forward_bfs(
+    let bfs_result = forward_bfs(
         &bboard,
         exit,
         target_steps,
