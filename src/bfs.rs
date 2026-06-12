@@ -49,11 +49,11 @@ use crate::types::{Dir, FlatIdx, QBlockId, Tile};
 
 pub trait VisitedTracker {
     fn contains(&self, fp: u64) -> bool;
-    fn insert(&mut self, fp: u64) -> bool;
+    fn insert(&mut self, fp: u64, steps: u32) -> bool;
     fn len(&self) -> usize;
     /// Called after a child fingerprint is successfully inserted.
     /// The default implementation is a no-op; override to record parent pointers.
-    fn record_parent(&mut self, _child_fp: u64, _parent_fp: u64, _steps_so_far: u32) {}
+    fn record_parent(&mut self, _child_fp: u64, _parent_fp: u64, _steps: u32) {}
 }
 
 // Wrapper for FxHashSet<u64>
@@ -64,7 +64,7 @@ impl VisitedTracker for SimpleVisited {
         self.0.contains(&fp)
     }
 
-    fn insert(&mut self, fp: u64) -> bool {
+    fn insert(&mut self, fp: u64, steps: u32) -> bool {
         self.0.insert(fp)
     }
 
@@ -633,8 +633,13 @@ pub fn forward_bfs(
         for step in 0..cap {
             let mut bucket = std::mem::take(&mut buckets[step]);
             while let Some(node) = bucket.pop() {
+                let fp = node_fingerprint(&node);
+                if !visited.insert(fp, node.steps) {
+                    continue;
+                }
                 process_bfs_node(
                     node,
+                    fp,
                     step as u32,
                     target_steps,
                     exit,
@@ -818,6 +823,7 @@ fn build_indeterminate_from_shortcuts(
 #[inline(never)]
 pub fn process_bfs_node<C: BfsCallbacks>(
     mut node: BfsNode,
+    fp: u64,
     step: u32,
     target_steps: u32,
     exit: FlatIdx,
@@ -833,17 +839,14 @@ pub fn process_bfs_node<C: BfsCallbacks>(
     verbose: u8,
 ) {
 
-    let fp = node_fingerprint(&node);
-    if verbose > 0 && step < 20 {
-        println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
-            node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
-    }
+    
+    //if verbose > 0 && step < 20 {
+    //if step < 2 {
+    //    println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
+    //        node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
+    //}
 
-    //println!("Checking for fp {:016x} against visited of len {}", fp, visited.len());
-    if visited.contains(fp) {
-        //println!("Visited contained fp");
-        return;
-    }
+    
 
     // ── Imputation Pruning ────────────────────────────────────────
     let imputation_verbose = verbose;
@@ -943,11 +946,8 @@ pub fn process_bfs_node<C: BfsCallbacks>(
         return;
     }
 
-    //println!("Inserting fp {:016x}", fp);
-    if !visited.insert(fp) {
-        return;
-    }
-    if visited.len() % 1000000 == 0 {
+    
+    if visited.len() % 1000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
 
@@ -1095,7 +1095,7 @@ pub fn expand_node_children(
                 exit_node.steps = steps_at_curr;
                 let child_fp = node_fingerprint(&exit_node);
                 //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-                visited.record_parent(child_fp, parent_fp, steps_at_curr as u32);
+                visited.record_parent(child_fp, parent_fp, steps_at_curr);
                 buckets[steps_at_curr as usize].push(exit_node);
             }
             continue;
@@ -1623,7 +1623,7 @@ fn handle_player_move_to_quantum_or_floor(
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
             let child_fp = node_fingerprint(&child);
             //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-            visited.record_parent(child_fp, parent_fp, new_steps as u32);
+            visited.record_parent(child_fp, parent_fp, new_steps);
             buckets[new_steps as usize].push(child);
         }
     }
@@ -1695,7 +1695,7 @@ fn handle_player_move_to_box(
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
             let child_fp = node_fingerprint(&child);
             //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-            visited.record_parent(child_fp, parent_fp, new_steps as u32);
+            visited.record_parent(child_fp, parent_fp, new_steps);
             buckets[new_steps as usize].push(child);
         }
     }

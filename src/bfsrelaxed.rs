@@ -80,20 +80,23 @@ impl RelaxedCache {
 pub struct VisitedWithParents {
     /// Committed nodes — same role as SimpleVisited.
     visited: FxHashSet<u64>,
+    /// Costs - number of steps taken so far
+    costs: FxHashMap<u64, u32>,
     /// Parent pointers recorded at enqueue time.
     /// Written by record_parent; read during trace-back.
-    parents: FxHashMap<u64, (u64, u32)>,
+    parents: FxHashMap<u64, u64>,
 }
 
 impl VisitedWithParents {
     pub fn new() -> Self {
         Self {
             visited: FxHashSet::default(),
+            costs: FxHashMap::default(),
             parents: FxHashMap::default(),
         }
     }
 
-    pub fn get_parent(&self, fp: u64) -> Option<(u64, u32)> {
+    pub fn get_parent(&self, fp: u64) -> Option<u64> {
         self.parents.get(&fp).copied()
     }
 }
@@ -103,7 +106,15 @@ impl VisitedTracker for VisitedWithParents {
         self.visited.contains(&fp)
     }
 
-    fn insert(&mut self, fp: u64) -> bool {
+    fn insert(&mut self, fp: u64, steps: u32) -> bool {
+        if self.costs.contains_key(&fp) {
+            if steps < *self.costs.get(&fp).unwrap() {
+                self.costs.insert(fp, steps);
+            }
+        }
+        else{
+            self.costs.insert(fp, steps);
+        }
         self.visited.insert(fp)
     }
 
@@ -111,16 +122,15 @@ impl VisitedTracker for VisitedWithParents {
         self.visited.len()
     }
 
-    fn record_parent(&mut self, child_fp: u64, parent_fp: u64, steps_so_far: u32) {
-        // Record at enqueue time. Keep smallest value of steps_so_far
-        if self.parents.contains_key(&child_fp) {
-            let (_existing_parent, existing_steps_so_far) = self.parents.get(&child_fp).unwrap();
-            if steps_so_far < *existing_steps_so_far {
-                self.parents.insert(child_fp, (parent_fp, steps_so_far));
+    fn record_parent(&mut self, child_fp: u64, parent_fp: u64, steps: u32) {
+        //if the parent already exists in fewer steps, don't insert
+        if self.costs.contains_key(&parent_fp) {
+            if steps >= *self.costs.get(&parent_fp).unwrap() {
+                return;
             }
-            return;
         }
-        self.parents.entry(child_fp).or_insert((parent_fp, steps_so_far));
+        self.costs.insert(parent_fp, steps);
+        self.parents.entry(child_fp).or_insert(parent_fp);
     }
 }
 
@@ -284,15 +294,14 @@ pub fn relaxed_solve(
     let player_floor_flood = basic_flood_fill(ctx.static_walls | ctx.covered_mask | ctx.q_occupancy, player, board.width);
     let exit_floor_flood = basic_flood_fill(player_floor_flood | !ctx.static_inner_mask, exit, board.width);
     let non_core_region = !(exit_floor_flood | player_floor_flood) & ctx.static_inner_mask;
-    let mut full_relaxed_solve = false;
 
     //if target_steps > 36 {
-        // println!("Static walls is {:b}", ctx.static_walls);
-        // println!("Covered mask is {:b}", ctx.covered_mask);
-        // println!("Quantum occupancy is {:b}", ctx.q_occupancy);
-        // println!("Player flood is {:b}", player_floor_flood);
-        // println!("Exit flood is {:b}", exit_floor_flood);
-        // println!("Non core region is {:b}", non_core_region);
+        //   println!("Static walls is {:b}", ctx.static_walls);
+        //   println!("Covered mask is {:b}", ctx.covered_mask);
+        //   println!("Quantum occupancy is {:b}", ctx.q_occupancy);
+        //   println!("Player flood is {:b}", player_floor_flood);
+        //   println!("Exit flood is {:b}", exit_floor_flood);
+        //   println!("Non core region is {:b}", non_core_region);
     //}
 
     if non_core_region & (ctx.q_occupancy | ctx.box_occupancy) == 0 {
@@ -305,25 +314,23 @@ pub fn relaxed_solve(
     // Collect QB IDs that have at least one current position in the non_core_region,
     // and move all such slots (and concrete boxes) to position 0.
     let mut deleted_qb_ids: Vec<QBlockId> = Vec::new();
+    let mut deleted_block_counts = 0;
 
-    for (qb_id, qb) in board.quantum_blocks.iter().enumerate() {
-        if qb.is_empty() {
-            continue;
-        }
-        let touches_non_core = qb
-            .current_positions()
-            .any(|pos| (non_core_region >> pos) & 1 != 0);
-        if touches_non_core {
-            deleted_qb_ids.push(qb_id as QBlockId);
-            // Zero out every slot belonging to this QB.
-            for (i, slot) in slots.iter().enumerate() {
-                if slot.qb_id == qb_id as QBlockId {
-                    new_root_node.qstate.set(i, FREE_SLOT as u16);
-                    full_relaxed_solve = true;
-                }
+    for (i, slot) in slots.iter().enumerate() {
+        if non_core_region & (1 << new_root_node.qstate.cur[i]) != 0{
+            if !deleted_qb_ids.contains(&slot.qb_id){
+                deleted_qb_ids.push(slot.qb_id);
             }
         }
     }
+    for qb_id in deleted_qb_ids.iter() {
+        for (i, slot) in slots.iter().enumerate() {
+            if slot.qb_id == *qb_id {
+                new_root_node.qstate.set(i, FREE_SLOT as u16);
+            }
+        }
+    }
+    //println!("New root node qstate: {:?}", new_root_node.qstate);
 
     // Concrete boxes: iterate static_boxes to find every box's current position,
     // resolving through box_state.moved where applicable.
@@ -340,7 +347,7 @@ pub fn relaxed_solve(
         if (non_core_region >> current) & 1 != 0 {
             // Remap to position 0 in box_state.moved. If the box was never
             // moved, we need to insert a new entry to record the displacement.
-            full_relaxed_solve = true;
+            deleted_block_counts += 1;
             if let Some(entry) = new_root_node.box_state.moved.iter_mut().find(|&&mut (o, _)| o == orig) {
                 entry.1 = FREE_SLOT as u16;
             } else {
@@ -348,12 +355,14 @@ pub fn relaxed_solve(
             }
         }
     }
-    if !full_relaxed_solve {
+    //if !full_relaxed_solve {
+    //    return RelaxedResult::Exact(steps);
+    //}
+    if deleted_block_counts + deleted_qb_ids.len() <= 3{
         return RelaxedResult::Exact(steps);
     }
     ctx.box_occupancy &= !non_core_region;
     ctx.static_boxes &= !non_core_region;
-    //println!("Running full relaxed solve");
 
     // ── Derive num_qbs and qb_masks from slots ────────────────────────────
     //
@@ -370,19 +379,42 @@ pub fn relaxed_solve(
     }
 
     let mut visited = VisitedWithParents::new();
+    //println!("Root fingerprint: {:x}", node_fingerprint(&new_root_node));
     let root_fp = node_fingerprint(&new_root_node);
-    println!("Size of visited: {}", visited.len());
-    if visited.contains(root_fp) {
-        println!("Seen before");
+    //println!("Size of visited: {}", visited.len());
+    let cached_result = ctx.relaxed_cache.get(root_fp);
+    if let Some(cached_result) = cached_result {
+        match cached_result {
+            RelaxedResult::Deadlock => {
+                return RelaxedResult::Deadlock;
+            }
+            RelaxedResult::AtLeast(bound) => {
+                if bound > target_steps {
+                    return RelaxedResult::AtLeast(bound);
+                }
+            }
+            RelaxedResult::Exact(dist) => {
+                return RelaxedResult::Exact(dist);
+            }
+        }
+        //println!("Cached");
+    } else{
+        //println!("Uncached");
     }
     //visited.insert(root_fp);
 
     let mut assignment_pool: Vec<Assignment> = Vec::new();
     let cap = target_steps as usize + 1;
     let mut buckets: Vec<Vec<BfsNode>> = vec![Vec::new(); cap];
+
+    println!("Running relaxed solve on node with qstate cur {:?}, box state {:?}, player position {:?}, target steps {}",
+    new_root_node.qstate.cur, new_root_node.box_state.moved, new_root_node.player, target_steps);
+
     buckets[0].push(new_root_node);
 
     let mut callbacks = RelaxedBfsCallbacks::new();
+
+    
 
     // ── Main bucketed BFS loop ────────────────────────────────────────────
     //
@@ -402,12 +434,19 @@ pub fn relaxed_solve(
         }
         let mut bucket = std::mem::take(&mut buckets[step]);
         while let Some(node) = bucket.pop() {
+            let fp = node_fingerprint(&node);
+            if !visited.insert(fp, node.steps) {
+                continue;
+            }
             //println!("Processing relaxed node at step {}", step);
             // Check for exit before expanding.
             if node.player == exit {
                 //println!("Exact result of {}", node.steps);
                 //return RelaxedResult::Exact(node.steps);
                 let fp = node_fingerprint(&node);
+                if !visited.contains(fp) {
+                    visited.insert(fp, node.steps);
+                }
                 if best_steps.is_none() || node.steps < best_steps.unwrap() {
                     best_steps = Some(node.steps);
                     best_steps_leaf_set.clear();
@@ -448,6 +487,7 @@ pub fn relaxed_solve(
 
             process_bfs_node(
                 node,
+                fp,
                 step as u32,
                 target_steps,
                 exit,
@@ -469,6 +509,7 @@ pub fn relaxed_solve(
             if visited.len() > limit as usize {
                 // State limit hit; conservatively report AtLeast(0) so the
                 // forward BFS doesn't prune on a potentially wrong answer.
+                println!("Hit state limit");
                 return RelaxedResult::AtLeast(0);
             }
         }
@@ -482,13 +523,15 @@ pub fn relaxed_solve(
         //no node was able to lead to a solution in target_steps or shorter.
         //all nodes get an atleast of target_steps - the node's cost
         for fp in visited.visited.iter() {
-            let cost_of_node = visited.parents.get(fp).unwrap().1;
+            let cost_of_node = visited.costs.get(fp).unwrap();
             ctx.relaxed_cache.insert(*fp, RelaxedResult::AtLeast(target_steps - cost_of_node));
         }
+        println!("Returning AtLeast target_steps");
         return RelaxedResult::AtLeast(target_steps);
     } else{
         for fp in visited.visited.iter() {
-            let cost_of_node = visited.parents.get(fp).unwrap().1;
+            //println!("Visited: {:?}, costs: {:?}, parents: {:?}", visited.visited, visited.costs, visited.parents);
+            let cost_of_node = visited.costs.get(fp).unwrap();
             ctx.relaxed_cache.insert(*fp, RelaxedResult::AtLeast(best_steps.unwrap_or(0) - cost_of_node));
         }
         for fp in best_steps_leaf_set.iter() {
@@ -496,24 +539,22 @@ pub fn relaxed_solve(
             let mut cur = *fp; 
             
             loop {
-                // Pass the value directly
+                //println!("Visited: {:?}, costs: {:?}, parents: {:?}", visited.visited, visited.costs, visited.parents);
+                let cost = visited.costs.get(&cur).unwrap();
+                ctx.relaxed_cache.insert(
+                    cur, 
+                    RelaxedResult::Exact(best_steps.unwrap_or(0) - cost)
+                );
+
                 let parent = visited.get_parent(cur); 
                 if parent.is_none() {
                     break;
                 }
-                
-                // Unpack it once safely
-                let (parent_id, cost) = parent.unwrap();
-                
-                ctx.relaxed_cache.insert(
-                    parent_id, 
-                    RelaxedResult::Exact(best_steps.unwrap_or(0) - cost)
-                );
-                
-                // Move to the next node by VALUE. No lifetimes to worry about!
+                let parent_id = parent.unwrap();
                 cur = parent_id; 
             }
         }
+        println!("Returning Exact {}", best_steps.unwrap_or(0));
         return RelaxedResult::Exact(best_steps.unwrap_or(0));
     }
 
