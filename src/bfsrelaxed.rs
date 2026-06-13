@@ -4,21 +4,20 @@
 // forward BFS: can an easier version of this state reach the exit? If even the
 // easier state cannot reach the exit, the exact state is deadlocked.
 
-use rustc_hash::{FxHashSet, FxHasher, FxHashMap};
-use smallvec::{smallvec, SmallVec};
-use std::hash::{Hash, Hasher};
+use rustc_hash::{FxHashSet, FxHashMap, FxHasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-use crate::bfs::{BfsCallbacks, BfsNode, SearchContext, node_fingerprint, fingerprint_raw,
-                 refresh_witness_in_pool, VisitedTracker, expand_node_children, process_bfs_node};
-use crate::board::{QuantumBoard, MAX_TILES};
-use crate::deadlock::{effective_tile, is_deadlock, BoxState};
+use crate::bfs::{BfsCallbacks, BfsNode, SearchContext,
+                 VisitedTracker, process_bfs_node};
+use crate::board::{QuantumBoard};
+use crate::deadlock::{effective_tile, BoxState};
 use crate::qstate::{
-    any_slots_at, find_uncovered_witness, has_valid_assignment,
-    slot_has_uncovered_assignment, slot_mask_at, Assignment, QState, Shortcut,
-    ShortcutConstraints, StartSlot, INVALID, INVALID_SLOT, FREE_SLOT, MAX_STARTS,
+    Assignment, QState,
+    ShortcutConstraints, StartSlot, FREE_SLOT, INVALID,
 };
-use crate::types::{Dir, FlatIdx, QBlockId, Tile};
+use smallvec::{SmallVec};
+use crate::types::{Dir, FlatIdx, QBlockId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RelaxedResult {
@@ -129,7 +128,7 @@ impl VisitedTracker for VisitedWithParents {
                 return;
             }
         }
-        self.costs.insert(parent_fp, steps);
+        self.costs.insert(child_fp, steps);
         self.parents.entry(child_fp).or_insert(parent_fp);
     }
 }
@@ -179,6 +178,36 @@ impl BfsCallbacks for RelaxedBfsCallbacks {
         // No shortcuts: every assignment is a candidate.
         &[]
     }
+}
+
+pub fn qstate_to_relaxed_version(qstate: &QState, slots: &[StartSlot]) -> Vec<(u8, u8, u8)> {
+    let mut id_curpos_to_mask_map = FxHashMap::default();
+    for (i, slot) in slots.iter().enumerate() {
+        if qstate.get(i) == FREE_SLOT as u16 || qstate.get(i) == INVALID {
+            continue;
+        }
+        let key = (slot.qb_id as u8, qstate.get(i) as u8);
+
+        let current_mask = id_curpos_to_mask_map.get(&key).unwrap_or(&0);
+        
+        id_curpos_to_mask_map.insert(key, current_mask | slot.push_mask);
+    }
+    let mut out_vec = Vec::new();
+    for (key, mask) in id_curpos_to_mask_map.iter() {
+        out_vec.push(((*key).0, (*key).1, *mask));
+    }
+    //sort out_vec to canonicalize
+    out_vec.sort();
+    out_vec
+}
+
+#[inline(never)] // Mark this explicitely, as it's a known hotspot we want to measure
+pub fn fingerprint_relaxed(player: FlatIdx, qstate: &QState, slots: &[StartSlot], box_state: &BoxState) -> u64 {
+    let mut h = DefaultHasher::new();
+    player.hash(&mut h);
+    qstate_to_relaxed_version(qstate, slots).hash(&mut h);
+    box_state.hash(&mut h);
+    h.finish()
 }
 
 pub fn basic_flood_fill(
@@ -241,6 +270,7 @@ pub fn relaxed_solve(
     visited_mask |= 1u128 << player; // mark the player's starting position as visited
     let mut cur_covered_mask = ctx.covered_mask; // start with the initial covered mask, which includes static walls and boxes
     let mut steps = 0u32;
+    let mut exit_touch_steps = None;
     //println!("Static inner mask: {:b}", ctx.static_inner_mask);
     //println!("Covered mask: {:b}", ctx.covered_mask);
     //println!("Left mask: {:b}", ctx.pushable[2]);
@@ -248,7 +278,10 @@ pub fn relaxed_solve(
         //println!("Relaxed solve step {}, visited_mask {:032x}, covered_mask {:032x}",
         //    steps, visited_mask, cur_covered_mask);
         if steps > target_steps {
-            return RelaxedResult::AtLeast(steps);
+            if exit_touch_steps.is_none(){
+                return RelaxedResult::AtLeast(steps);
+            }
+            break;
         }
 
         let mut new_visited_mask = visited_mask;
@@ -283,9 +316,9 @@ pub fn relaxed_solve(
 
         steps += 1;
         if (new_visited_mask & (1u128 << exit)) != 0 {
-            break;
+            exit_touch_steps = Some(steps);
         }
-        if new_visited_mask == 0 {
+        if new_visited_mask == 0 && exit_touch_steps.is_none() {
             return RelaxedResult::Deadlock; // no new tiles visited, so we're stuck
         }
         visited_mask |= new_visited_mask;
@@ -293,7 +326,8 @@ pub fn relaxed_solve(
 
     let player_floor_flood = basic_flood_fill(ctx.static_walls | ctx.covered_mask | ctx.q_occupancy, player, board.width);
     let exit_floor_flood = basic_flood_fill(player_floor_flood | !ctx.static_inner_mask, exit, board.width);
-    let non_core_region = !(exit_floor_flood | player_floor_flood) & ctx.static_inner_mask;
+    //note: & visited_mask because blocks that we never even managed to push in phase 1 shouldn't be considered for removal.
+    let non_core_region = !(exit_floor_flood | player_floor_flood) & ctx.static_inner_mask & visited_mask;
 
     //if target_steps > 36 {
         //   println!("Static walls is {:b}", ctx.static_walls);
@@ -305,7 +339,7 @@ pub fn relaxed_solve(
     //}
 
     if non_core_region & (ctx.q_occupancy | ctx.box_occupancy) == 0 {
-        return RelaxedResult::Exact(steps);
+        return RelaxedResult::Exact(exit_touch_steps.unwrap());
     }
 
     let mut new_root_node = root_node.clone();
@@ -361,6 +395,7 @@ pub fn relaxed_solve(
     if deleted_block_counts + deleted_qb_ids.len() <= 3{
         return RelaxedResult::Exact(steps);
     }
+    
     ctx.box_occupancy &= !non_core_region;
     ctx.static_boxes &= !non_core_region;
 
@@ -380,9 +415,15 @@ pub fn relaxed_solve(
 
     let mut visited = VisitedWithParents::new();
     //println!("Root fingerprint: {:x}", node_fingerprint(&new_root_node));
-    let root_fp = node_fingerprint(&new_root_node);
+    let root_fp = fingerprint_relaxed(player, &new_root_node.qstate, slots, &new_root_node.box_state);
     //println!("Size of visited: {}", visited.len());
-    let cached_result = ctx.relaxed_cache.get(root_fp);
+    let mut cached_result = ctx.relaxed_cache.get(root_fp);
+    if cached_result.is_none(){
+        cached_result = try_cache_by_imputation(&new_root_node, &mut ctx.relaxed_cache, board, slots, verbose);
+        //if cached_result.is_some(){
+        //    println!("Imputed cache hit");
+        //}
+    }
     if let Some(cached_result) = cached_result {
         match cached_result {
             RelaxedResult::Deadlock => {
@@ -401,14 +442,18 @@ pub fn relaxed_solve(
     } else{
         //println!("Uncached");
     }
-    //visited.insert(root_fp);
 
     let mut assignment_pool: Vec<Assignment> = Vec::new();
     let cap = target_steps as usize + 1;
     let mut buckets: Vec<Vec<BfsNode>> = vec![Vec::new(); cap];
 
-    println!("Running relaxed solve on node with qstate cur {:?}, box state {:?}, player position {:?}, target steps {}",
-    new_root_node.qstate.cur, new_root_node.box_state.moved, new_root_node.player, target_steps);
+    //println!("Running relaxed solve on node with qstate cur {:?}, box state {:?}, player position {:?}, target steps {}",
+    //new_root_node.qstate.cur, new_root_node.box_state.moved, new_root_node.player, target_steps);
+    /*if let Some(cached_result) = cached_result {
+        println!("Cached");
+    } else {
+        println!("Uncached");
+    }*/
 
     buckets[0].push(new_root_node);
 
@@ -434,16 +479,14 @@ pub fn relaxed_solve(
         }
         let mut bucket = std::mem::take(&mut buckets[step]);
         while let Some(node) = bucket.pop() {
-            let fp = node_fingerprint(&node);
+            let fp = fingerprint_relaxed(node.player, &node.qstate, slots, &node.box_state);
+            //println!("Processing node with qstate cur {:?}, box state {:?}, player position {:?}, current steps {}, fingerprint {:032x}",
+            //node.qstate.cur, node.box_state.moved, node.player, node.steps, fp);
             if !visited.insert(fp, node.steps) {
                 continue;
             }
-            //println!("Processing relaxed node at step {}", step);
             // Check for exit before expanding.
             if node.player == exit {
-                //println!("Exact result of {}", node.steps);
-                //return RelaxedResult::Exact(node.steps);
-                let fp = node_fingerprint(&node);
                 if !visited.contains(fp) {
                     visited.insert(fp, node.steps);
                 }
@@ -456,7 +499,6 @@ pub fn relaxed_solve(
                 }
                 break;
             }
-            let fp = node_fingerprint(&node);
             let cached_result = ctx.relaxed_cache.get(fp);
             if let Some(cached_result) = cached_result {
                 match cached_result {
@@ -500,6 +542,7 @@ pub fn relaxed_solve(
                 &mut callbacks,
                 &mut buckets,
                 &mut assignment_pool,
+                false,
                 verbose,
             );
         }
@@ -515,18 +558,14 @@ pub fn relaxed_solve(
         }
     }
 
-    //if !may_be_possible {
-    //    return RelaxedResult::Deadlock;
-    //}
-
     if best_steps.is_none() {
         //no node was able to lead to a solution in target_steps or shorter.
         //all nodes get an atleast of target_steps - the node's cost
         for fp in visited.visited.iter() {
             let cost_of_node = visited.costs.get(fp).unwrap();
-            ctx.relaxed_cache.insert(*fp, RelaxedResult::AtLeast(target_steps - cost_of_node));
+            ctx.relaxed_cache.insert(*fp, RelaxedResult::AtLeast(target_steps - cost_of_node + 1));
         }
-        println!("Returning AtLeast target_steps");
+        //println!("Returning AtLeast target_steps");
         return RelaxedResult::AtLeast(target_steps);
     } else{
         for fp in visited.visited.iter() {
@@ -554,7 +593,7 @@ pub fn relaxed_solve(
                 cur = parent_id; 
             }
         }
-        println!("Returning Exact {}", best_steps.unwrap_or(0));
+        //println!("Returning Exact {}", best_steps.unwrap_or(0));
         return RelaxedResult::Exact(best_steps.unwrap_or(0));
     }
 
@@ -562,4 +601,112 @@ pub fn relaxed_solve(
 
     // Exit was never reached within target_steps.
     //RelaxedResult::Deadlock
+}
+
+
+
+
+
+/// Attempt to find if a "more general" version of the current node has been visited.
+/// A more general version is identical but has one or two INVALID slots restored
+/// to a valid current position.
+fn try_cache_by_imputation(
+    node: &BfsNode,
+    cache: &mut RelaxedCache,
+    board: &QuantumBoard,
+    slots: &[StartSlot],
+    verbose: u8,
+) -> Option<RelaxedResult> {
+    // Identify invalid slots and their possible "valid" positions according to the board.
+    if verbose > 1 {
+        println!(
+            "Trying imputation pruning for node with qstate {:?} and box_state {:?}",
+            node.qstate.cur, node.box_state.moved
+        );
+    }
+    let mut possible = SmallVec::<[(usize, FlatIdx); 16]>::new();
+    for i in 0..slots.len() {
+        if !node.qstate.is_valid(i) {
+            let qb = &board.quantum_blocks[slots[i].qb_id as usize];
+            if verbose > 1 {
+                println!(
+                    "Slot {} (QB {}, start {}) is invalid at position {}, effective tile {:?}",
+                    i,
+                    slots[i].qb_id,
+                    slots[i].start_pos,
+                    node.qstate.get(i),
+                    effective_tile(slots[i].start_pos, board, &node.box_state)
+                );
+            }
+            //generate list of current positions that the QB can occupy based on which slots of the
+            //qstate are from the same QB and valid, and the effective tile at those positions.
+            for j in 0..slots.len() {
+                if i == j {
+                    continue;
+                }
+                if slots[i].qb_id == slots[j].qb_id && node.qstate.is_valid(j) {
+                    let pos_j = node.qstate.get(j);
+                    possible.push((i, pos_j));
+                    if verbose > 1 {
+                        println!("  Slot {} (QB {}, start {}) is valid at position {}, effective tile {:?}",
+                            j, slots[j].qb_id, slots[j].start_pos, pos_j,
+                            effective_tile(pos_j, board, &node.box_state));
+                    }
+                }
+            }
+            //additionally, consider the start slot imputation as a possibility
+            possible.push((i, slots[i].start_pos));
+            if verbose > 1 {
+                println!("  Start slot imputation for slot {} (QB {}, start {}) at position {}, effective tile {:?}",
+                    i, slots[i].qb_id, slots[i].start_pos, slots[i].start_pos,
+                    effective_tile(slots[i].start_pos, board, &node.box_state));
+            }
+        }
+    }
+
+    if possible.is_empty() {
+        return None;
+    }
+
+    let mut test_qs = node.qstate.clone();
+
+    // 1-slot imputation: Try re-validating one slot.
+    for &(i, pos) in &possible {
+        test_qs.set(i, pos); // Still need set() here for specific imputation
+        let result = cache.get(fingerprint_relaxed(node.player, &test_qs, slots, &node.box_state));
+        if result.is_some(){
+            return result;
+        }
+        test_qs.invalidate(i);
+    }
+
+    // 2-slot imputation: Try re-validating two slots simultaneously.
+    // We bound this to avoid a performance cliff on states with many invalidations.
+    if possible.len() >= 2 && possible.len() <= 12 {
+        for a in 0..possible.len() {
+            let (i, pos_i) = possible[a];
+            test_qs.set(i, pos_i);
+            for b in a + 1..possible.len() {
+                let (j, pos_j) = possible[b];
+                if i == j {
+                    continue;
+                } // Must be different slots.
+                if verbose > 1 {
+                    println!(
+                        "Trying 2-slot imputation for slots {} and {}, positions {} and {}",
+                        i, j, pos_i, pos_j
+                    );
+                }
+                test_qs.set(j, pos_j);
+                let result = cache.get(fingerprint_relaxed(node.player, &test_qs, slots, &node.box_state));
+                if result.is_some(){
+                    return result;
+                }
+                test_qs.set(j, INVALID);
+            }
+            test_qs.set(i, INVALID);
+        }
+    }
+
+    None
 }

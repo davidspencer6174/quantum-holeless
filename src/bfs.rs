@@ -28,12 +28,12 @@
 //       ruled_out: (original QB index, start_pos) pairs to remove from the board.
 
 use rustc_hash::{FxHashSet, FxHasher};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
 use crate::board::{QuantumBoard, MAX_TILES};
-use crate::deadlock::{effective_tile, is_deadlock, BoxState};
+use crate::deadlock::{effective_tile, BoxState};
 use crate::qstate::{
     any_slots_at, find_uncovered_witness, has_valid_assignment,
     slot_has_uncovered_assignment, slot_mask_at, Assignment, QState, Shortcut,
@@ -652,6 +652,7 @@ pub fn forward_bfs(
                     &mut callbacks,
                     &mut buckets,
                     &mut assignment_pool,
+                    true,
                     verbose,
                 );
             }
@@ -836,6 +837,7 @@ pub fn process_bfs_node<C: BfsCallbacks>(
     callbacks: &mut C,
     buckets: &mut [Vec<BfsNode>],
     pool: &mut Vec<Assignment>,
+    allow_relaxed: bool,
     verbose: u8,
 ) {
 
@@ -947,7 +949,7 @@ pub fn process_bfs_node<C: BfsCallbacks>(
     }
 
     
-    if visited.len() % 1000 == 0 {
+    if visited.len() % 1000000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
 
@@ -1001,36 +1003,38 @@ pub fn process_bfs_node<C: BfsCallbacks>(
 
     let steps_remaining = target_steps - node.steps;
     //println!("Running relaxed solve with node.steps = {}", node.steps);
-    let relaxed_result = relaxed_solve(
-        board,
-        slots,
-        node.player,
-        exit,
-        steps_remaining,
-        verbose,
-        Some(100_000),
-        &node,
-        ctx,
-    );
-    
-    // Restore fields mutated by relaxed_solve before any early return.
-    ctx.q_occupancy   = saved_q_occupancy;
-    ctx.box_occupancy = saved_box_occupancy;
-    ctx.covered_mask  = saved_covered_mask;
-    ctx.static_boxes  = saved_static_boxes;
-    ctx.pushable      = saved_pushable;
+    if allow_relaxed{
+        let relaxed_result = relaxed_solve(
+            board,
+            slots,
+            node.player,
+            exit,
+            steps_remaining,
+            verbose,
+            Some(100_000),
+            &node,
+            ctx,
+        );
+        
+        // Restore fields mutated by relaxed_solve before any early return.
+        ctx.q_occupancy   = saved_q_occupancy;
+        ctx.box_occupancy = saved_box_occupancy;
+        ctx.covered_mask  = saved_covered_mask;
+        ctx.static_boxes  = saved_static_boxes;
+        ctx.pushable      = saved_pushable;
 
-    match relaxed_result {
-        RelaxedResult::Deadlock => {
-            //println!("Deadlock!");
-            return;
-        }
-        RelaxedResult::AtLeast(lower_bound) if lower_bound > steps_remaining => {
-            //println!("Too high lower bound!");
-            return
-        },
-        RelaxedResult::AtLeast(_) | RelaxedResult::Exact(_) => {
-            //println!("Result was exact or lower bound");
+        match relaxed_result {
+            RelaxedResult::Deadlock => {
+                //println!("Deadlock!");
+                return;
+            }
+            RelaxedResult::AtLeast(lower_bound) if lower_bound > steps_remaining => {
+                //println!("Too high lower bound!");
+                return
+            },
+            RelaxedResult::AtLeast(_) | RelaxedResult::Exact(_) => {
+                //println!("Result was exact or lower bound");
+            }
         }
     }
 
