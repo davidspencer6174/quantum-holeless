@@ -723,6 +723,78 @@ fn process_child(
         }
     }
 
+        
+    //if the exit is covered, run a check to see if it can ever be uncovered
+    let exit_tile = bboard.get_flat(exit);
+    let trivially_covered = matches!(exit_tile, Tile::Box);
+    if trivially_covered {
+        //check for all four possible pull directions
+        //for each direction, if a pull would take the character off the edge, it fails
+        //for each direction, if one of the two tiles involved in the pull is a wall,
+        //test removing the wall. if that causes a shortcut, the pull fails.
+        //if all four pulls fail, the exit can never be uncovered, so we can skip the BFS and mark it as SomeClean
+        let mut all_pulls_fail = true;
+        for pull_dir in Dir::all() {
+            let (px, py) = bboard.coords(exit);
+            let from = match pull_dir.apply(px, py) {
+                Some((fx, fy)) if bboard.in_inner(fx, fy) => bboard.flat(fx, fy),
+                _ => continue,
+            };
+            let from_tile = bboard.get_flat(from);
+            let (from_x, from_y) = bboard.coords(from);
+            let from_2 = match pull_dir.apply(from_x, from_y) {
+                Some((from_x, from_y)) if bboard.in_inner(from_x, from_y) => bboard.flat(from_x, from_y),
+                _ => continue,
+            };
+            let from_2_tile = bboard.get_flat(from_2);
+            let mut wall_to_clear_tile = None;
+            if from_tile == Tile::Wall && from_2_tile != Tile::Wall {
+                wall_to_clear_tile = Some(from);
+            }
+            if from_2_tile == Tile::Wall && from_tile != Tile::Wall {
+                wall_to_clear_tile = Some(from_2);
+            }
+            let mut test_board = bboard.clone();
+            if let Some(wall_to_clear) = wall_to_clear_tile {
+                test_board.set_flat(wall_to_clear, Tile::Floor);
+            }
+            //add the opposite pull direction to the block on the exit
+            let exit_push_mask = bboard.get_box_push_mask(exit);
+            //if we just did a no-op, the only way this is a fail is if the
+            //whole board is a shortcut, which we'll check later anyway
+            if exit_push_mask & pull_dir.opposite().mask() != 0 && wall_to_clear_tile.is_none() {
+                all_pulls_fail = false;
+                break;
+            }
+            bboard.set_box_push_mask(exit, exit_push_mask | pull_dir.opposite().mask());
+            test_board.collapse_single_tile_qbs();
+            test_board.compact_blocks();
+            let test_path = vec![pull_dir.opposite()];
+            let test_result = forward_bfs(
+                &test_board,
+                exit,
+                target_steps,
+                &test_path,
+                &[],
+                false,
+                0,
+                Some(350_000),
+            );
+            if !matches!(test_result, BfsResult::AllShortcut) {
+                all_pulls_fail = false;
+                break;
+            }
+        }
+        if all_pulls_fail {
+            //println!("Pruned for exit cover at depth {}", depth + 1);
+            //print!("{}", format_board_header(&bboard, exit, "Some-clean board"));
+            //print!("{}", format_board(&bboard, exit));
+            return;
+        }
+    }
+
+
+
     //let use_quick_check = {
     //    let shared_guard = shared.lock().unwrap();
     //    let is_record_candidate = depth + 1 > shared_guard.longest_found;

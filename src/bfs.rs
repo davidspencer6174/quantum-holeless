@@ -842,11 +842,11 @@ pub fn process_bfs_node<C: BfsCallbacks>(
 ) {
 
     
-    //if verbose > 0 && step < 20 {
+    if verbose > 0 && step < 20 && allow_relaxed{
     //if step < 2 {
-    //    println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
-    //        node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
-    //}
+        println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
+            node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
+    }
 
     
 
