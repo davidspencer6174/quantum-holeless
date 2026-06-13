@@ -14,7 +14,7 @@ use crate::board::{QuantumBoard};
 use crate::deadlock::{effective_tile, BoxState};
 use crate::qstate::{
     Assignment, QState,
-    ShortcutConstraints, StartSlot, FREE_SLOT, INVALID,
+    ShortcutConstraints, StartSlot, FREE_SLOT, INVALID, INVALID_SLOT,
 };
 use smallvec::{SmallVec};
 use crate::types::{Dir, FlatIdx, QBlockId};
@@ -180,34 +180,52 @@ impl BfsCallbacks for RelaxedBfsCallbacks {
     }
 }
 
-pub fn qstate_to_relaxed_version(qstate: &QState, slots: &[StartSlot]) -> Vec<(u8, u8, u8)> {
-    let mut id_curpos_to_mask_map = FxHashMap::default();
-    for (i, slot) in slots.iter().enumerate() {
-        if qstate.get(i) == FREE_SLOT as u16 || qstate.get(i) == INVALID {
-            continue;
-        }
-        let key = (slot.qb_id as u8, qstate.get(i) as u8);
-
-        let current_mask = id_curpos_to_mask_map.get(&key).unwrap_or(&0);
-        
-        id_curpos_to_mask_map.insert(key, current_mask | slot.push_mask);
-    }
-    let mut out_vec = Vec::new();
-    for (key, mask) in id_curpos_to_mask_map.iter() {
-        out_vec.push(((*key).0, (*key).1, *mask));
-    }
-    //sort out_vec to canonicalize
-    out_vec.sort();
-    out_vec
+#[inline]
+fn hash_triple(a: u8, b: u8, c: u8) -> u64 {
+    let mut h = FxHasher::default();
+    h.write_u8(a);
+    h.write_u8(b);
+    h.write_u8(c);
+    h.finish()
 }
 
-#[inline(never)] // Mark this explicitely, as it's a known hotspot we want to measure
-pub fn fingerprint_relaxed(player: FlatIdx, qstate: &QState, slots: &[StartSlot], box_state: &BoxState) -> u64 {
-    let mut h = DefaultHasher::new();
+// Different multipliers per "role" in the accumulation
+const M: u64 = 0x9e3779b97f4a7c15; // Fibonacci hashing constant
+
+#[inline(never)]
+fn fingerprint_relaxed(
+    player: FlatIdx,
+    qstate: &QState,
+    slots: &[StartSlot],
+    box_state: &BoxState,
+) -> u64 {
+    let mut per_entry_mask = [[0u8; 128]; 16]; // [qb_id][pos], stack allocated
+    for i in 0..qstate.len {
+        let pos = qstate.cur[i];
+        if pos == INVALID_SLOT || pos == FREE_SLOT { continue; }
+        per_entry_mask[slots[i].qb_id as usize][pos as usize] |= slots[i].push_mask;
+    }
+
+    let mut acc = 0u64;
+    for qb_id in 0..16usize {
+        for pos in 0..qstate.len {
+            let mask = per_entry_mask[qb_id][pos];
+            if mask != 0 {
+                let mut h = FxHasher::default();
+                h.write_u8(qb_id as u8);
+                h.write_u8(pos as u8);
+                h.write_u8(mask);
+                acc ^= h.finish().wrapping_mul(M);
+            }
+        }
+    }
+
+    // Mix in player and box_state
+    let mut h = FxHasher::default();
     player.hash(&mut h);
-    qstate_to_relaxed_version(qstate, slots).hash(&mut h);
     box_state.hash(&mut h);
-    h.finish()
+    acc ^= h.finish();
+    acc
 }
 
 pub fn basic_flood_fill(
