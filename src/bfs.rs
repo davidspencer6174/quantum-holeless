@@ -842,7 +842,7 @@ pub fn process_bfs_node<C: BfsCallbacks>(
 ) {
 
     
-    if verbose > 0 && step < 20 && allow_relaxed{
+    if verbose > 0 && step < 10 && allow_relaxed{
     //if step < 2 {
         println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
             node.steps, board.coords(node.player).0, board.coords(node.player).1, node.qstate.cur, node.box_state.moved, fp, node.qstate.len);
@@ -1162,49 +1162,68 @@ fn quick_shortcut_check(
                       suffix: &[Dir],
                       shortcut_constraints: &mut Vec<ShortcutConstraints>,
                       shortcut_qstate_set: &mut FxHashSet<QState>,
+                      verbose: bool,
                       pool: &mut Vec<Assignment>| {
         let mut current = start_nodes.to_vec();
         for &dir in suffix {
             let mut next_gen = Vec::new();
             for n in current {
-                for next in simulate_step(&n, dir, board, slots, num_qbs, exit, pool) {
+                for next in simulate_step(&n, dir, board, slots, num_qbs, exit, verbose, pool) {
+                    if verbose{
+                        println!("At step {} with player at {}", next.steps, next.player);
+                    }
                     if next.player == exit {
                         if next.steps < target_steps {
                             add_shortcut_qstate(shortcut_constraints, shortcut_qstate_set, next.qstate, slots);
                         }
                     } else {
+                        if verbose{
+                            println!("Pushing next gen");
+                        }
                         next_gen.push(next);
+                        if verbose{
+                            println!("Length of next gen: {}", next_gen.len());
+                        }
                     }
                 }
             }
+            if verbose{
+                println!("Length of next gen before current assignment: {}", next_gen.len());
+            }
             current = next_gen;
             if current.is_empty() {
+                if verbose{
+                    println!("Breaking because empty");
+                }
                 break;
             }
         }
     };
     //start with any length 3 path, then take any suffix
     for d1 in Dir::all() {
-        let n1s = simulate_step(root, d1, board, slots, num_qbs, exit, pool);
+        let n1s = simulate_step(root, d1, board, slots, num_qbs, exit, false, pool);
         if n1s.is_empty() {
             continue;
         }
         for d2 in Dir::all() {
-            let n2s = simulate_step(&n1s[0], d2, board, slots, num_qbs, exit, pool);
+            let n2s = simulate_step(&n1s[0], d2, board, slots, num_qbs, exit, false, pool);
             if n2s.is_empty() {
                 continue;
             }
             for d3 in Dir::all() {
-                let n3s = simulate_step(&n2s[0], d3, board, slots, num_qbs, exit, pool);
+                let n3s = simulate_step(&n2s[0], d3, board, slots, num_qbs, exit, false, pool);
                 if n3s.is_empty() {
                     continue;
                 }
                 for start_ind in 4..intended_path.len(){
+                    //println!("Running suffix for d123 {:?} {:?} {:?}, start_ind {}", d1, d2, d3, start_ind);
+                    let verbose = false;//d1 == d2 && d2 == d3 && d1 == Dir::Down && start_ind == 4;
                     run_suffix(
                         n3s.clone(),
                         &intended_path[start_ind..],
                         shortcut_constraints,
                         shortcut_qstate_set,
+                        verbose,
                         pool,
                     );
                 }
@@ -1222,10 +1241,15 @@ fn simulate_step(
     slots: &[StartSlot],
     num_qbs: usize,
     exit: FlatIdx,
+    verbose: bool,
     pool: &mut Vec<Assignment>,
 ) -> SmallVec<[BfsNode; 2]> {
     let mut results = SmallVec::new();
     let (cx, cy) = board.coords(node.player);
+
+    if verbose {
+        println!("Starting step simulation")
+    }
     
     // Compute inner_mask locally for this function (called infrequently during quick shortcut check)
     let mut inner_mask = 0u128;
@@ -1247,6 +1271,10 @@ fn simulate_step(
         None => return results,
     };
 
+    if verbose{
+        println!("At this part of step simulation");
+    }
+
     let t = effective_tile(next, board, &node.box_state);
     let occ_exists = any_slots_at(&node.qstate, next);
     let new_steps = node.steps + 1;
@@ -1264,9 +1292,16 @@ fn simulate_step(
             })
     };
 
+    if verbose{
+        println!("This far");
+    }
+
     match t {
         Tile::Wall => {}
         Tile::Floor | Tile::Player | Tile::Quantum(_) => {
+                if verbose{
+                    println!("In floor, player, quantum section");
+                }
                 if !occ_exists {
                 // This is a player move to an empty tile
                     if let Some(child) = make_child(
@@ -1292,7 +1327,10 @@ fn simulate_step(
                         if slot.is_wall{
                             interact_qs.invalidate(i);
                         }
-                        let box_mask = board.get_box_push_mask(next);
+                        let box_mask = slot.push_mask;
+                        if verbose {
+                            println!("Box push mask: {:b}", box_mask);
+                        }
                         if (box_mask & dir.mask()) == 0 {
                             interact_qs.invalidate(i);
                         }
@@ -1332,7 +1370,7 @@ fn simulate_step(
                         // Move of concrete box crushes any quantum interpretations at 'beyond'.
                         qstate.invalidate_all(beyond);
                         // Check if box can be pushed in this direction by checking push_mask
-                        let box_dir_mask = board.get_box_push_mask(next);
+                        let box_dir_mask = board.get_box_push_mask(orig);
                         if (box_dir_mask & dir.mask()) > 0 {
                             if let Some(child) = make_child(
                                 qstate,

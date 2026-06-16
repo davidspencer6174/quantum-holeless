@@ -39,6 +39,7 @@ use rayon::ThreadPoolBuilder;
 use quantum::backward::backward_dfs;
 use quantum::bfs::{forward_bfs, BfsResult};
 use quantum::io::{format_board, format_board_header, parse_input};
+use quantum::types::Dir;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -129,7 +130,9 @@ fn main() {
     println!();
 
     let start_time = std::time::Instant::now();
-
+    //&[Dir::Down, Dir::Right, Dir::Down, Dir::Down, Dir::Down, Dir::Left, Dir::Left, Dir::Up, Dir::Left,
+    //    Dir::Up, Dir::Left, Dir::Up, Dir::Down, Dir::Down, Dir::Right, Dir::Right,
+    //    Dir::Down, Dir::Right, Dir::Right, Dir::Up, Dir::Left, Dir::Up, Dir::Left, Dir::Up, Dir::Left],
     match forward_bfs(
         &parsed.board,
         parsed.exit,
