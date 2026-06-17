@@ -298,7 +298,7 @@ impl<'a> BfsCallbacks for ForwardBfsCallbacks<'a> {
         if verbose > 0 {
             println!("Shortcut:");
             for c in self.shortcut_constraints.iter() {
-                println!("{}", c.invalid_slots_mask);
+                println!("{:b}", c.invalid_slots_mask);
                 for &(a, b) in c.collision_pairs.iter() {
                     println!("  Collision between slot {} and slot {}", a, b);
                 }
@@ -1199,33 +1199,66 @@ fn quick_shortcut_check(
             }
         }
     };
+    //compute player_x and player_y
+    let (player_x, player_y) = board.coords(root.player);
+
     //start with any length 3 path, then take any suffix
     for d1 in Dir::all() {
+        let next_pos = d1.apply(player_x, player_y);
+        if next_pos.is_none() {
+            continue;
+        }
+        let (step_1_x, step_1_y) = next_pos.unwrap();
         let n1s = simulate_step(root, d1, board, slots, num_qbs, exit, false, pool);
         if n1s.is_empty() {
             continue;
         }
         for d2 in Dir::all() {
+            let next_pos = d2.apply(step_1_x, step_1_y);
+            if next_pos.is_none() {
+                continue;
+            }
+            let (step_2_x, step_2_y) = next_pos.unwrap();
             let n2s = simulate_step(&n1s[0], d2, board, slots, num_qbs, exit, false, pool);
             if n2s.is_empty() {
                 continue;
             }
             for d3 in Dir::all() {
+                let next_pos = d3.apply(step_2_x, step_2_y);
+                if next_pos.is_none() {
+                    continue;
+                }
+                let (step_3_x, step_3_y) = next_pos.unwrap();
                 let n3s = simulate_step(&n2s[0], d3, board, slots, num_qbs, exit, false, pool);
                 if n3s.is_empty() {
                     continue;
                 }
-                for start_ind in 4..intended_path.len(){
+                let (mut path_x, mut path_y) = board.coords(root.player);
+                for start_ind in 0..intended_path.len(){
+                    let next_pos = intended_path[start_ind].apply(path_x, path_y);
+                    if next_pos.is_none() {
+                        panic!("Shouldn't happen");
+                    }
+                    (path_x, path_y) = next_pos.unwrap();
                     //println!("Running suffix for d123 {:?} {:?} {:?}, start_ind {}", d1, d2, d3, start_ind);
                     let verbose = false;//d1 == d2 && d2 == d3 && d1 == Dir::Down && start_ind == 4;
-                    run_suffix(
-                        n3s.clone(),
-                        &intended_path[start_ind..],
-                        shortcut_constraints,
-                        shortcut_qstate_set,
-                        verbose,
-                        pool,
-                    );
+                    if start_ind > 3 && path_x == step_3_x && path_y == step_3_y{
+                        /*if start_ind == 5 {
+                            println!("{} {:?} {:?} {:?} {} {} {} {}", start_ind, d1, d2, d3, player_x, player_y, try_match_x, try_match_y);
+                            println!("{} {}", board.coords(root.player).0, board.coords(root.player).1);
+                            println!("{:?} {:?} {:?} {:?} {:?} {:?}", intended_path[0], intended_path[1], intended_path[2], intended_path[3], intended_path[4], intended_path[5]);
+                            panic!("Need to debug");
+                        }*/
+                        //println!("{}", start_ind);
+                        run_suffix(
+                            n3s.clone(),
+                            &intended_path[start_ind..],
+                            shortcut_constraints,
+                            shortcut_qstate_set,
+                            verbose,
+                            pool,
+                        );
+                    }
                 }
             }
         }

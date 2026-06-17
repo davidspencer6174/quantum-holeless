@@ -454,14 +454,6 @@ fn backward_dfs_recursive(
     shortcuts: Vec<Shortcut>,
     required_walls: u128,
 ) {
-    //if shortcuts.len() > 0 {
-    //print board and shortcuts vec
-    //    print!("{}", format_board_header(board, exit, "Current board"));
-    //    print!("{}", format_board(board, exit));
-    //    print!("Shortcuts: {:?}\n", shortcuts);
-    //}
-    //print!("{}", format_board_header(board, exit, "Current board"));
-    //print!("{}", format_board(board, exit));
 
     let step_limit_to_print_clean = 2;
 
@@ -501,13 +493,7 @@ fn backward_dfs_recursive(
         }
 
         if depth > shared_guard.longest_found {
-            //let exit_tile = board.get_flat(exit);
-            //let trivially_covered = matches!(exit_tile, Tile::Box)
-            //    || matches!(exit_tile, Tile::Quantum(qid)
-            //        if board.quantum_blocks[qid as usize].num_positions() == 1);
-            //if !trivially_covered {
-                record_candidate = true;
-            //}
+            record_candidate = true;
         }
     }
 
@@ -536,9 +522,6 @@ fn backward_dfs_recursive(
                 return;
             }
             BfsResult::SomeClean { .. } => {
-                //println!("Found some-clean board at depth {}:", depth);
-                //print!("{}", format_board_header(board, exit, "Some-clean board"));
-                //print!("{}", format_board(board, exit));
 
                 let mut shared_guard = shared.lock().unwrap();
                 if depth > shared_guard.longest_found {
@@ -723,6 +706,13 @@ fn process_child(
         }
     }
 
+    /*let quick_check_only = {
+        let shared_guard = shared.lock().unwrap();
+        let is_record_candidate = depth + 1 > shared_guard.longest_found;
+        depth > 20 && !is_record_candidate
+    };*/
+    let quick_check_only = false;
+
         
     //if the exit is covered, run a check to see if it can ever be uncovered
     let exit_tile = bboard.get_flat(exit);
@@ -776,7 +766,7 @@ fn process_child(
                 target_steps,
                 &test_path,
                 &[],
-                false,
+                quick_check_only,
                 0,
                 Some(350_000),
             );
@@ -786,25 +776,10 @@ fn process_child(
             }
         }
         if all_pulls_fail {
-            //println!("Pruned for exit cover at depth {}", depth + 1);
-            //print!("{}", format_board_header(&bboard, exit, "Some-clean board"));
-            //print!("{}", format_board(&bboard, exit));
             return;
         }
     }
-
-
-
-    //let use_quick_check = {
-    //    let shared_guard = shared.lock().unwrap();
-    //    let is_record_candidate = depth + 1 > shared_guard.longest_found;
-    //    depth > 20 && !is_record_candidate
-    //};
-    //let mut verbose_special = 0;
-    //if depth == 5 {
-    //    verbose_special = 1;
-    //}
-    let use_quick_check = false;
+    
     let start_time = std::time::Instant::now();
     let bfs_result = forward_bfs(
         &bboard,
@@ -812,7 +787,7 @@ fn process_child(
         target_steps,
         &next_path,
         &[],//&shortcuts,
-        use_quick_check,
+        quick_check_only,
         0,
         Some(10_000),//Some(35_000_000),
     );
@@ -838,6 +813,16 @@ fn process_child(
                 BfsResult::SomeClean { .. } => println!("BFS result: SomeClean"),
                 BfsResult::Indeterminate { .. } => println!("BFS result: Indeterminate"),
             }
+            println!("Expected path:");
+            for dir in &next_path {
+                match dir {
+                    Dir::Up => print!("U"),
+                    Dir::Down => print!("D"),
+                    Dir::Left => print!("L"),
+                    Dir::Right => print!("R"),
+                }
+            }
+            println!();
         }
     }
 
@@ -867,30 +852,26 @@ fn process_child(
                 }
             }
         }
-        BfsResult::Indeterminate {
+        BfsResult::Indeterminate{
             ruled_out,
             shortcuts: next_shortcuts,
         } => {
-            /*
-            //if target_steps <= step_limit_to_print_clean {
-                println!("Found indeterminate board at depth {}:", depth + 1);
-                print!("{}", format_board_header(&bboard, exit, "Indeterminate board"));
-                print!("{}", format_board(&bboard, exit));
-            //}
-            let mut rboard = bboard;
-            apply_ruled_out(&mut rboard, &ruled_out);
-            rboard.collapse_single_tile_qbs();
-            rboard.compact_blocks();
-            backward_dfs_recursive(
-                &rboard,
-                depth + 1,
-                exit,
-                shared,
-                Some(dir),
-                next_path,
-                next_shortcuts,
-                child_required_walls,
-            );*/
+            if quick_check_only {
+                let mut rboard = bboard;
+                apply_ruled_out(&mut rboard, &ruled_out);
+                rboard.collapse_single_tile_qbs();
+                rboard.compact_blocks();
+                backward_dfs_recursive(
+                    &rboard,
+                    depth + 1,
+                    exit,
+                    shared,
+                    Some(dir),
+                    next_path,
+                    next_shortcuts,
+                    child_required_walls,
+                );
+            }
         }
         BfsResult::SomeClean {
             ruled_out,
@@ -920,6 +901,11 @@ fn process_child(
         }
     }
 }
+
+//try to roughly determine whether a board is likely to be clean
+//claiming a board is clean when it isn't is much worse than the inverse
+//fn heuristically_clean(board: &QuantumBoard, exit: FlatIdx, path: Vec<Dir>) -> bool {
+//}
 
 pub fn backward_dfs(goal_x: u16, goal_y: u16, inner_width: u16, inner_height: u16) {
     let board = QuantumBoard::wall_filled_with_player(inner_width, inner_height, goal_x, goal_y);
