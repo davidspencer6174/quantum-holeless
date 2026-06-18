@@ -142,8 +142,6 @@ fn block_domain_analysis(
 }
 
 fn can_block_reach_dead_end(board: &QuantumBoard, p_idx: FlatIdx, exit: FlatIdx) -> bool {
-    // For each concrete box, check whether it can potentially be pushed into
-    // the dead-end tile at p_idx under permissive movement assumptions.
     for idx in 0..(board.width * board.height) {
         let idx = idx as FlatIdx;
         if board.get_flat(idx) == Tile::Box {
@@ -154,8 +152,6 @@ fn can_block_reach_dead_end(board: &QuantumBoard, p_idx: FlatIdx, exit: FlatIdx)
         }
     }
 
-    // For each quantum block position, treat any current position that can
-    // represent a box as a potential source and search its domain.
     for qb in &board.quantum_blocks {
         for pos in qb.current_positions() {
             if !qb.can_be_box_at(pos) {
@@ -176,18 +172,19 @@ fn can_block_reach_dead_end(board: &QuantumBoard, p_idx: FlatIdx, exit: FlatIdx)
 
 // ── UndoKind ──────────────────────────────────────────────────────────────────
 //
-// PureMove: no block was pulled. May be a shortcut — see below.
+// PureMove: no block was pulled. Tracks the tile type that the player stepped onto.
 //
 // Pull { qb_id, pulled_pos }: a block landed at pulled_pos (the player's old
 //   position). If the block started at pulled_pos the push/pull cancel — a
 //   shortcut. We remove pulled_pos from the QB before BFS.
 
 #[derive(Debug, Clone, Copy)]
-enum UndoKind {
-    PureMove,
+pub enum UndoKind {
+    PureMove { original_dest_tile: Tile },
     Pull {
         qb_id: QBlockId,
         pulled_pos: FlatIdx,
+        original_dest_tile: Tile,
     },
 }
 
@@ -222,9 +219,7 @@ fn undo_move(
     match from_tile {
         Tile::Floor => {}
         Tile::Wall => {
-            // Idea 1: Respect the required_walls mask from previous shortcut discoveries
             if (required_walls & (1u128 << from)) != 0 {
-                //println!("Refusing to delete wall at index {} due to required_walls mask", from);
                 return vec![];
             }
             base.set_flat(from, Tile::Floor);
@@ -243,7 +238,7 @@ fn undo_move(
     let push_direction_mask = dir.opposite().mask();
 
     let kind = match (push_src, push_src_tile) {
-        (None, _) | (_, Some(Tile::Floor)) => UndoKind::PureMove,
+        (None, _) | (_, Some(Tile::Floor)) => UndoKind::PureMove { original_dest_tile: from_tile },
 
         (Some(src), Some(Tile::Wall)) => {
             let new_id = base.quantum_blocks.len() as QBlockId;
@@ -260,6 +255,7 @@ fn undo_move(
             UndoKind::Pull {
                 qb_id: new_id,
                 pulled_pos: player,
+                original_dest_tile: from_tile,
             }
         }
 
@@ -279,10 +275,11 @@ fn undo_move(
             UndoKind::Pull {
                 qb_id: new_id,
                 pulled_pos: player,
+                original_dest_tile: from_tile,
             }
         }
 
-        (Some(_src), Some(Tile::Quantum(push_id))) => {
+        (Some(src), Some(Tile::Quantum(push_id))) => {
             let old_mask = base.quantum_blocks[push_id as usize].box_push_mask_at(push_src.unwrap());
             let player_mask = old_mask | push_direction_mask;
             base.set_flat(player, Tile::Quantum(push_id));
@@ -295,10 +292,11 @@ fn undo_move(
             UndoKind::Pull {
                 qb_id: push_id,
                 pulled_pos: player,
+                original_dest_tile: from_tile,
             }
         }
 
-        (_, Some(Tile::Player)) | (_, None) => UndoKind::PureMove,
+        (_, Some(Tile::Player)) | (_, None) => UndoKind::PureMove { original_dest_tile: from_tile },
     };
 
     vec![(base, kind)]
@@ -330,21 +328,19 @@ fn apply_ruled_out(board: &mut QuantumBoard, ruled_out: &[(usize, FlatIdx)]) {
     }
 }
 
-// ── Backward DFS ──────────────────────────────────────────────────────────────
-
 // ── BFS timing histogram ──────────────────────────────────────────────────────
 
 struct BfsTimingStats {
-    lt1ms: u64,   // < 1ms
-    lt10ms: u64,  // 1ms – 10ms
-    lt100ms: u64, // 10ms – 100ms
-    lt1s: u64,    // 100ms – 1s
-    lt10s: u64,   // 1s – 10s
-    ge10s: u64,   // ≥ 10s
+    lt1ms: u64,
+    lt10ms: u64,
+    lt100ms: u64,
+    lt1s: u64,
+    lt10s: u64,
+    ge10s: u64,
     total: u64,
-    allshortcut: u128, // time of forward BFS calls that returned AllShortcut
-    someclean: u128,   // time of forward BFS calls that returned SomeClean
-    indeterminate: u128, // time of forward BFS calls that returned Indeterminate
+    allshortcut: u128,
+    someclean: u128,
+    indeterminate: u128,
 }
 
 impl BfsTimingStats {
@@ -394,16 +390,8 @@ impl BfsTimingStats {
             }
         };
         println!("  < 1ms:      {:>8}  ({:.1}%)", self.lt1ms, pct(self.lt1ms));
-        println!(
-            "  1–10ms:     {:>8}  ({:.1}%)",
-            self.lt10ms,
-            pct(self.lt10ms)
-        );
-        println!(
-            "  10–100ms:   {:>8}  ({:.1}%)",
-            self.lt100ms,
-            pct(self.lt100ms)
-        );
+        println!("  1–10ms:     {:>8}  ({:.1}%)", self.lt10ms, pct(self.lt10ms));
+        println!("  10–100ms:   {:>8}  ({:.1}%)", self.lt100ms, pct(self.lt100ms));
         println!("  100ms–1s:   {:>8}  ({:.1}%)", self.lt1s, pct(self.lt1s));
         println!("  1s–10s:     {:>8}  ({:.1}%)", self.lt10s, pct(self.lt10s));
         println!("  ≥ 10s:      {:>8}  ({:.1}%)", self.ge10s, pct(self.ge10s));
@@ -422,11 +410,79 @@ impl BfsTimingStats {
     }
 }
 
+// ── Heuristic Tracker Stats ───────────────────────────────────────────────────
+
+struct HeuristicStats {
+    h_triggered: u64,
+    h_some_clean_empty_ruled_out: u64,
+    h_some_clean_with_ruled_out: u64,
+    h_all_shortcut: u64,
+    h_indeterminate: u64,
+}
+
+impl HeuristicStats {
+    fn new() -> Self {
+        Self {
+            h_triggered: 0,
+            h_some_clean_empty_ruled_out: 0,
+            h_some_clean_with_ruled_out: 0,
+            h_all_shortcut: 0,
+            h_indeterminate: 0,
+        }
+    }
+
+    fn record_match(&mut self, result: &BfsResult) {
+        self.h_triggered += 1;
+        match result {
+            BfsResult::Unreachable => {}
+            BfsResult::AllShortcut => self.h_all_shortcut += 1,
+            BfsResult::Indeterminate { .. } => self.h_indeterminate += 1,
+            BfsResult::SomeClean { ruled_out, .. } => {
+                if ruled_out.is_empty() {
+                    self.h_some_clean_empty_ruled_out += 1;
+                } else {
+                    self.h_some_clean_with_ruled_out += 1;
+                }
+            }
+        }
+    }
+
+    fn print(&self) {
+        println!("=== Heuristic Analysis ({} Triggers) ===", self.h_triggered);
+        if self.h_triggered == 0 {
+            println!("  No instances flagged by heuristic.");
+            return;
+        }
+        let pct = |n: u64| 100.0 * n as f64 / self.h_triggered as f64;
+        println!(
+            "  SomeClean (Empty ruled_out):  {:>8}  ({:.1}%)",
+            self.h_some_clean_empty_ruled_out,
+            pct(self.h_some_clean_empty_ruled_out)
+        );
+        println!(
+            "  SomeClean (With ruled_out):   {:>8}  ({:.1}%)",
+            self.h_some_clean_with_ruled_out,
+            pct(self.h_some_clean_with_ruled_out)
+        );
+        println!(
+            "  AllShortcut:                  {:>8}  ({:.1}%)",
+            self.h_all_shortcut,
+            pct(self.h_all_shortcut)
+        );
+        println!(
+            "  Indeterminate:                {:>8}  ({:.1}%)",
+            self.h_indeterminate,
+            pct(self.h_indeterminate)
+        );
+    }
+}
+
 struct SharedState {
     seen: FxHashMap<u64, usize>,
     longest_found: usize,
     slowest_millis: u64,
     timing: BfsTimingStats,
+    heuristic_stats: HeuristicStats,
 }
 
 impl SharedState {
@@ -436,11 +492,87 @@ impl SharedState {
             longest_found: 0,
             slowest_millis: 0,
             timing: BfsTimingStats::new(),
+            heuristic_stats: HeuristicStats::new(),
         }
     }
 }
 
 const PARALLEL_DEPTH_THRESHOLD: usize = 8;
+
+// ── Heuristic implementation ─────────────────────────────────────────────────
+
+
+/// Determines if a direction is completely blocked for a forward player step.
+/// This matches your criteria: outside bounds, a wall, or a block that cannot be pushed.
+fn is_direction_hard_blocked(board: &QuantumBoard, player_idx: FlatIdx, dir: Dir) -> bool {
+    let (px, py) = board.coords(player_idx);
+    
+    // 1. Board Edge / Outer Boundary Check
+    let (nx, ny) = match dir.apply(px, py) {
+        Some((x, y)) if board.in_inner(x, y) => (x, y),
+        _ => return true, // Out of bounds or edge
+    };
+
+    let next_idx = board.flat(nx, ny);
+    let next_tile = board.get_flat(next_idx);
+
+    match next_tile {
+        // 2. Structural Wall
+        Tile::Wall => true,
+        
+        // 3. Concrete Block check
+        Tile::Box => {
+            let push_mask = board.get_box_push_mask(next_idx);
+            // The push mask must allow moving in `dir` to be passable.
+            // If the bit for `dir` is 0, the block is unpushable from here.
+            (push_mask & dir.mask()) == 0
+        }
+        
+        // Quantum blocks or floor are considered open or require full solver verification
+        _ => false,
+    }
+}
+
+fn heuristically_clean(board: &QuantumBoard, kind: UndoKind) -> bool {
+    // Strengthened heuristic: Only predict clean if it's a pure move 
+    // AND the destination space was already completely empty (Tile::Floor).
+    let player_idx = board.find_player();
+    let mut blocked_count = 0;
+
+    for dir in Dir::all() {
+        if is_direction_hard_blocked(board, player_idx, dir) {
+            blocked_count += 1;
+        }
+    }
+    return false;
+
+    //unfortunately the below ones seem harmful. more testing needed
+    /*if let UndoKind::PureMove { original_dest_tile } = kind {
+        //if original_dest_tile == Tile::Floor {
+        //    println!("puremove floor")
+        //}
+        return matches!(original_dest_tile, Tile::Floor);
+    }
+    if let UndoKind::Pull { qb_id, pulled_pos, original_dest_tile } = kind {
+        if qb_id >= board.quantum_blocks.len() as u8 || &board.tiles[pulled_pos as usize] != &Tile::Quantum(qb_id as QBlockId) {
+            return false;
+        }
+        //count the QB's locations
+        //println!("qb id: {}", qb_id);
+        //println!("quantum blocks len: {}", board.quantum_blocks.len());
+        let qb = &board.quantum_blocks[qb_id as usize];
+        let mut pos_count = 0;
+        for pos in qb.current_positions() {
+            pos_count += 1;
+        }
+        //if original_dest_tile == Tile::Floor && pos_count >= 3{
+        //    println!("final condition");
+        //}
+
+        return original_dest_tile == Tile::Floor && pos_count >= 3;
+    }
+    false*/
+}
 
 // ── Backward DFS ──────────────────────────────────────────────────────────────
 
@@ -454,7 +586,6 @@ fn backward_dfs_recursive(
     shortcuts: Vec<Shortcut>,
     required_walls: u128,
 ) {
-
     let step_limit_to_print_clean = 2;
 
     let fp = board_fingerprint(board);
@@ -499,12 +630,9 @@ fn backward_dfs_recursive(
 
     if record_candidate {
         let start_time = std::time::Instant::now();
-        let bfs_result = forward_bfs(board, exit, depth as u32, &path,
-            &[],//&shortcuts,
-             false, 0, None);
+        let bfs_result = forward_bfs(board, exit, depth as u32, &path, &[], false, 0, None);
         let elapsed = start_time.elapsed();
         let elapsed_us = elapsed.as_micros();
-        let elapsed_ms = elapsed.as_millis() as u64;
 
         {
             let mut shared_guard = shared.lock().unwrap();
@@ -522,10 +650,8 @@ fn backward_dfs_recursive(
                 return;
             }
             BfsResult::SomeClean { .. } => {
-
                 let mut shared_guard = shared.lock().unwrap();
                 if depth > shared_guard.longest_found {
-                    //check if it's possible for the exit to be uncovered
                     let exit_tile = board.get_flat(exit);
                     let trivially_covered = matches!(exit_tile, Tile::Box)
                         || matches!(exit_tile, Tile::Quantum(qid)
@@ -549,7 +675,7 @@ fn backward_dfs_recursive(
         let board_str = format_board(&board, exit);
 
         println!(
-            ">>> New record found at depth {}! Writing to longest_levels_pp1_{}_{}.txt",
+            ">>> New record found at depth {}! Writing to longest_levels_{}_{}.txt",
             depth,
             board.width - 2,
             board.height - 2
@@ -575,8 +701,6 @@ fn backward_dfs_recursive(
         .collect();
 
     if depth < PARALLEL_DEPTH_THRESHOLD {
-        // Parallelize search above the threshold as well so idle Rayon workers
-        // can help find more threshold-root subtrees.
         let mut local_required_walls = required_walls;
         rayon::scope(|s| {
             let mut children_iter = children.into_iter();
@@ -601,6 +725,7 @@ fn backward_dfs_recursive(
                             bboard,
                             kind,
                             step_limit_to_print_clean,
+                            record_candidate,
                         );
                     });
                 }
@@ -618,11 +743,11 @@ fn backward_dfs_recursive(
                     first_board,
                     first_kind,
                     step_limit_to_print_clean,
+                    record_candidate,
                 );
             }
         });
     } else {
-        // Sequential processing inside an already assigned subtree.
         let mut local_required_walls = required_walls;
         for (dir, bboard, kind) in children {
             process_child(
@@ -638,6 +763,7 @@ fn backward_dfs_recursive(
                 bboard,
                 kind,
                 step_limit_to_print_clean,
+                record_candidate,
             );
         }
     }
@@ -656,16 +782,46 @@ fn process_child(
     mut bboard: QuantumBoard,
     kind: UndoKind,
     step_limit_to_print_clean: u32,
+    record_candidate: bool,
 ) {
     let child_required_walls = *required_walls;
-    if matches!(kind, UndoKind::PureMove) {
+    
+    if let UndoKind::PureMove { .. } = kind {
         let is_shortcut = depth > 0 && prev_undo_dir == Some(dir.opposite());
         if is_shortcut {
             return;
         }
+
+        // --- TOPOLOGY-AWARE PROVABLE SHORTCUT CHECK ---
+        if let Some(interaction_idx) = find_first_interaction_source(board, &path, exit) {
+            let p_pos = board.find_player();
+            let q_pos = bboard.find_player(); // New position after the backward move
+
+            // Run flood fill over open floor tiles on the parent board starting from the interaction tile
+            let floor_dists = compute_floor_distances(board, interaction_idx);
+
+
+            if let (Some(dist_p), Some(dist_q)) = (floor_dists[p_pos as usize], floor_dists[q_pos as usize]) {
+                // If moving backward brings us strictly closer to the interaction point via open floor space,
+                // a shorter path to that interaction point exists.
+                if dist_q < dist_p {
+                    // Update required walls tracking for correctness before pruning
+                    let (old_px, old_py) = board.coords(p_pos);
+                    if let Some((fx, fy)) = dir.apply(old_px, old_py) {
+                        if board.in_inner(fx, fy) {
+                            let wall_pos = board.flat(fx, fy);
+                            if board.get_flat(wall_pos) == Tile::Wall && wall_pos < 128 {
+                                *required_walls |= 1u128 << wall_pos;
+                            }
+                        }
+                    }
+                    return; // Short-circuit: Discard this state entirely
+                }
+            }
+        }
     }
 
-    if let UndoKind::Pull { qb_id, pulled_pos } = kind {
+    if let UndoKind::Pull { qb_id, pulled_pos , original_dest_tile} = kind {
         if prev_undo_dir == Some(dir.opposite()) {
             if let Some(qb) = bboard.quantum_blocks.get(qb_id as usize) {
                 if qb.starts_for(pulled_pos).is_some() {
@@ -706,23 +862,27 @@ fn process_child(
         }
     }
 
-    /*let quick_check_only = {
-        let shared_guard = shared.lock().unwrap();
-        let is_record_candidate = depth + 1 > shared_guard.longest_found;
-        depth > 20 && !is_record_candidate
-    };*/
     let quick_check_only = false;
+    //let quick_check_only = heuristically_clean(&bboard, kind) && !record_candidate;
+    if heuristically_clean(&bboard, kind) {
+        backward_dfs_recursive(
+            &bboard,
+            depth + 1,
+            exit,
+            shared,
+            Some(dir),
+            next_path,
+            shortcuts,
+            child_required_walls,
+        );
+        return;
+    }
 
-        
-    //if the exit is covered, run a check to see if it can ever be uncovered
+
+
     let exit_tile = bboard.get_flat(exit);
     let trivially_covered = matches!(exit_tile, Tile::Box);
     if trivially_covered {
-        //check for all four possible pull directions
-        //for each direction, if a pull would take the character off the edge, it fails
-        //for each direction, if one of the two tiles involved in the pull is a wall,
-        //test removing the wall. if that causes a shortcut, the pull fails.
-        //if all four pulls fail, the exit can never be uncovered, so we can skip the BFS and mark it as SomeClean
         let mut all_pulls_fail = true;
         for pull_dir in Dir::all() {
             let (px, py) = bboard.coords(exit);
@@ -748,10 +908,7 @@ fn process_child(
             if let Some(wall_to_clear) = wall_to_clear_tile {
                 test_board.set_flat(wall_to_clear, Tile::Floor);
             }
-            //add the opposite pull direction to the block on the exit
             let exit_push_mask = bboard.get_box_push_mask(exit);
-            //if we just did a no-op, the only way this is a fail is if the
-            //whole board is a shortcut, which we'll check later anyway
             if exit_push_mask & pull_dir.opposite().mask() != 0 && wall_to_clear_tile.is_none() {
                 all_pulls_fail = false;
                 break;
@@ -779,6 +936,8 @@ fn process_child(
             return;
         }
     }
+
+    
     
     let start_time = std::time::Instant::now();
     let bfs_result = forward_bfs(
@@ -786,10 +945,10 @@ fn process_child(
         exit,
         target_steps,
         &next_path,
-        &[],//&shortcuts,
+        &[],
         quick_check_only,
         0,
-        Some(10_000),//Some(35_000_000),
+        Some(10_000),
     );
     let elapsed = start_time.elapsed();
     let elapsed_us = elapsed.as_micros();
@@ -798,6 +957,31 @@ fn process_child(
     {
         let mut shared_guard = shared.lock().unwrap();
         shared_guard.timing.record(elapsed_us, &bfs_result);
+        
+        if heuristically_clean(&bboard, kind) {
+            //if it's allshortcut, display the board
+            /*match &bfs_result {
+                BfsResult::AllShortcut => {
+                    println!("AllShortcut heuristically clean board");
+                    print!("{}", format_board_header(&bboard, exit, "Heuristically clean board"));
+                    print!("{}", format_board(&bboard, exit));
+                    println!("Expected path:");
+                    for dir in &next_path {
+                        match dir {
+                            Dir::Up => print!("U"),
+                            Dir::Down => print!("D"),
+                            Dir::Left => print!("L"),
+                            Dir::Right => print!("R"),
+                        }
+                    }
+                }
+                BfsResult::Unreachable => {}
+                BfsResult::SomeClean { .. } => {}
+                BfsResult::Indeterminate { .. } => {}
+            }*/
+            shared_guard.heuristic_stats.record_match(&bfs_result);
+        }
+
         if elapsed_ms >= shared_guard.slowest_millis && elapsed_ms > 10 {
             shared_guard.slowest_millis = elapsed_ms;
             println!(
@@ -831,13 +1015,10 @@ fn process_child(
             println!("Found unreachable board at depth {}:", depth + 1);
             print!("{}", format_board_header(&bboard, exit, "Unreachable board"));
             print!("{}", format_board(&bboard, exit));
-            forward_bfs(&bboard, exit, target_steps, &next_path,
-                &[],//&shortcuts,
-                 false, 1, None);
+            forward_bfs(&bboard, exit, target_steps, &next_path, &[], false, 1, None);
             panic!("Unreachable board found! This should not happen, as the backward move should be valid. Please investigate.");
         }
         BfsResult::AllShortcut => {
-            // If the undo move removed a wall, that wall must be present in all descendants
             let player = board.find_player();
             let (px, py) = board.coords(player);
             let wall_pos = match dir.apply(px, py) {
@@ -847,7 +1028,6 @@ fn process_child(
             
             if let Some(pos) = wall_pos {
                 if board.get_flat(pos) == Tile::Wall && pos < 128 {
-                    // Mark this wall as required for all future exploration
                     *required_walls |= 1u128 << pos;
                 }
             }
@@ -902,15 +1082,71 @@ fn process_child(
     }
 }
 
-//try to roughly determine whether a board is likely to be clean
-//claiming a board is clean when it isn't is much worse than the inverse
-//fn heuristically_clean(board: &QuantumBoard, exit: FlatIdx, path: Vec<Dir>) -> bool {
-//}
-
 pub fn backward_dfs(goal_x: u16, goal_y: u16, inner_width: u16, inner_height: u16) {
     let board = QuantumBoard::wall_filled_with_player(inner_width, inner_height, goal_x, goal_y);
     let exit = board.flat(goal_x, goal_y);
     let shared = Arc::new(Mutex::new(SharedState::new()));
     backward_dfs_recursive(&board, 0, exit, &shared, None, vec![], vec![], 0);
-    shared.lock().unwrap().timing.print();
+    
+    let guard = shared.lock().unwrap();
+    guard.timing.print();
+    guard.heuristic_stats.print();
+}
+
+
+
+
+
+/// Simulates the forward path step-by-step from the parent player's position
+/// and returns the first index where the player is about to interact with a block, QB, or the exit.
+fn find_first_interaction_source(board: &QuantumBoard, path: &[Dir], exit: FlatIdx) -> Option<FlatIdx> {
+    let mut current_pos = board.find_player();
+    
+    for &dir in path {
+        let (cx, cy) = board.coords(current_pos);
+        if let Some((nx, ny)) = dir.apply(cx, cy) {
+            if board.in_inner(nx, ny) {
+                let next_idx = board.flat(nx, ny);
+                let next_tile = board.get_flat(next_idx);
+                
+                // Interaction occurs if the tile is the exit, a Box, or a Quantum Block
+                if next_idx == exit || matches!(next_tile, Tile::Box | Tile::Quantum(_)) {
+                    return Some(current_pos);
+                }
+                current_pos = next_idx;
+            }
+        }
+    }
+    None
+}
+
+/// Computes the exact shortest path distance from a target tile to all reachable tiles,
+/// moving strictly through `Tile::Floor` spaces on the parent board.
+fn compute_floor_distances(board: &QuantumBoard, target: FlatIdx) -> Vec<Option<u32>> {
+    let total_cells = (board.width * board.height) as usize;
+    let mut distances = vec![None; total_cells];
+    let mut queue = VecDeque::new();
+
+    distances[target as usize] = Some(0);
+    queue.push_back(target);
+
+    while let Some(curr) = queue.pop_front() {
+        let curr_dist = distances[curr as usize].unwrap();
+        let (cx, cy) = board.coords(curr);
+
+        for dir in Dir::all() {
+            if let Some((nx, ny)) = dir.apply(cx, cy) {
+                if board.in_inner(nx, ny) {
+                    let next_idx = board.flat(nx, ny);
+                    // The tile must be completely open floor (and not already visited)
+                    if (board.get_flat(next_idx) == Tile::Floor || board.get_flat(next_idx) == Tile::Player) && distances[next_idx as usize].is_none() {
+                        distances[next_idx as usize] = Some(curr_dist + 1);
+                        queue.push_back(next_idx);
+                    }
+                }
+            }
+        }
+    }
+
+    distances
 }
