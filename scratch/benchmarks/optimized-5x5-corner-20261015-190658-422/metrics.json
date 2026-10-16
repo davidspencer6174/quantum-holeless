@@ -1,0 +1,15 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\quantum.exe",
+  "arguments": [
+    "5",
+    "5",
+    "1",
+    "1"
+  ],
+  "elapsed_seconds": 2.682,
+  "peak_working_set_mib": 6.21,
+  "sampled_peak_private_mib": 2.65,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\optimized-5x5-corner-20261015-190658-422"
+}

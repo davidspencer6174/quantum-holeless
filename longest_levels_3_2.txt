@@ -1,0 +1,108 @@
+=== Longest path so far with depth = 1 (exit 1,1) ===
+Letters:
+311
+411
+
+Push masks:
+.... #### ####
+.... #### ####
+
+=== Longest path so far with depth = 2 (exit 1,1) ===
+Letters:
+311
+041
+
+Push masks:
+.... #### ####
+.... .... ####
+
+=== Longest path so far with depth = 3 (exit 1,1) ===
+Letters:
+311
+004
+
+Push masks:
+.... #### ####
+.... .... ....
+
+=== Longest path so far with depth = 4 (exit 1,1) ===
+Letters:
+314
+000
+
+Push masks:
+.... #### ....
+.... .... ....
+
+=== Longest path so far with depth = 1 (exit 2,1) ===
+Letters:
+131
+141
+
+Push masks:
+#### .... ####
+#### .... ####
+
+=== Longest path so far with depth = 2 (exit 2,1) ===
+Letters:
+131
+aA4
+
+Push masks:
+#### .... ####
+#### ..L. ....
+
+=== Longest path so far with depth = 1 (exit 1,1) ===
+Letters:
+311
+411
+
+Push masks:
+.... #### ####
+.... #### ####
+
+=== Longest path so far with depth = 2 (exit 1,1) ===
+Letters:
+311
+041
+
+Push masks:
+.... #### ####
+.... .... ####
+
+=== Longest path so far with depth = 3 (exit 1,1) ===
+Letters:
+311
+004
+
+Push masks:
+.... #### ####
+.... .... ....
+
+=== Longest path so far with depth = 4 (exit 1,1) ===
+Letters:
+314
+000
+
+Push masks:
+.... #### ....
+.... .... ....
+
+=== Longest path so far with depth = 1 (exit 2,1) ===
+Letters:
+131
+141
+
+Push masks:
+#### .... ####
+#### .... ####
+
+=== Longest path so far with depth = 2 (exit 2,1) ===
+Letters:
+131
+aA4
+
+Push masks:
+#### .... ####
+#### ..L. ....
+

@@ -1,0 +1,2460 @@
+=== Longest path so far with depth = 1 (exit 1,1) ===
+Letters:
+3111
+4111
+1111
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 1,1) ===
+Letters:
+3111
+0411
+1111
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.... .... #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 3 (exit 1,1) ===
+Letters:
+3111
+0041
+1111
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.... .... .... ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 1,1) ===
+Letters:
+3141
+00A1
+11a1
+1111
+1111
+
+Push masks:
+.... #### .... ####
+.... .... .D.. ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 1,1) ===
+Letters:
+3bB4
+00A1
+11a1
+1111
+1111
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 1,1) ===
+Letters:
+3aA0
+0024
+1101
+1111
+1111
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### .... ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 1,1) ===
+Letters:
+3aA0
+0020
+1104
+1111
+1111
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### .... ....
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 1,1) ===
+Letters:
+3aA0
+0020
+1140
+1111
+1111
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### .... ....
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 9 (exit 1,1) ===
+Letters:
+3aA0
+00B0
+11B0
+1141
+1111
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### UD.. ....
+#### #### .... ####
+#### #### #### ####
+
+=== Longest path so far with depth = 10 (exit 1,1) ===
+Letters:
+3aA0
+00B0
+11B0
+11B1
+1141
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### UD.. ....
+#### #### UD.. ####
+#### #### .... ####
+
+=== Longest path so far with depth = 11 (exit 1,1) ===
+Letters:
+3aA0
+00B0
+11B0
+11B1
+14Cc
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### #### UD.. ....
+#### #### UD.. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 12 (exit 1,1) ===
+Letters:
+3020
+0000
+1100
+1421
+10Aa
+
+Push masks:
+.... .... ..L. ....
+.... .... .... ....
+#### #### .... ....
+#### .... UD.. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 13 (exit 1,1) ===
+Letters:
+3020
+0000
+1100
+4BB1
+10Aa
+
+Push masks:
+.... .... ..L. ....
+.... .... .... ....
+#### #### .... ....
+.... UD.R UD.. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 14 (exit 1,1) ===
+Letters:
+3020
+0000
+1100
+0421
+0200
+
+Push masks:
+.... .... ..L. ....
+.... .... .... ....
+#### #### .... ....
+.... .... UD.. ####
+.... ...R .... ....
+
+=== Longest path so far with depth = 15 (exit 1,1) ===
+Letters:
+3aA0
+0020
+1020
+4110
+0000
+
+Push masks:
+.... #### ..L. ....
+.... .... .D.. ....
+#### .... ..L. ....
+.... #### #### ....
+.... .... .... ....
+
+=== Longest path so far with depth = 16 (exit 1,1) ===
+Letters:
+3020
+0020
+1100
+1410
+1000
+
+Push masks:
+.... .... ..L. ....
+.... .... U... ....
+#### #### .... ....
+#### .... #### ....
+#### .... .... ....
+
+=== Longest path so far with depth = 17 (exit 1,1) ===
+Letters:
+3020
+0020
+1100
+4Aa0
+1000
+
+Push masks:
+.... .... ..L. ....
+.... .... U... ....
+#### #### .... ....
+.... ...R #### ....
+#### .... .... ....
+
+=== Longest path so far with depth = 18 (exit 1,1) ===
+Letters:
+3020
+0000
+1100
+0421
+0200
+
+Push masks:
+.... .... ..L. ....
+.... .... .... ....
+#### #### .... ....
+.... .... U... ####
+.... ...R .... ....
+
+=== Longest path so far with depth = 19 (exit 1,1) ===
+Letters:
+3014
+0200
+0A20
+1A20
+bBB0
+
+Push masks:
+.... .... #### ....
+.... U... .... ....
+.... ..L. .D.. ....
+#### U.L. U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 20 (exit 1,1) ===
+Letters:
+3011
+0204
+0020
+1220
+aAA0
+
+Push masks:
+.... .... #### ####
+.... U... .... ....
+.... .... .D.. ....
+#### U.L. ..L. ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 21 (exit 1,1) ===
+Letters:
+3014
+0200
+0020
+1220
+aAA0
+
+Push masks:
+.... .... #### ....
+.... U... .... ....
+.... .... .D.. ....
+#### U.L. ..L. ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 1 (exit 1,2) ===
+Letters:
+4111
+A111
+a111
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 1,2) ===
+Letters:
+0411
+A111
+a111
+1111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 1,2) ===
+Letters:
+0011
+AA41
+0111
+1111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. .DL. .... ####
+.... #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 1,2) ===
+Letters:
+0011
+AAA4
+0111
+1111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. .DL. .DL. ....
+.... #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 1,2) ===
+Letters:
+0014
+AAAB
+011b
+1111
+1111
+
+Push masks:
+.... .... #### ....
+.D.. .DL. .DL. .D..
+.... #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 1,2) ===
+Letters:
+001a
+302A
+0140
+1111
+1111
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### .... ....
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 1,2) ===
+Letters:
+001a
+30BA
+01B0
+1141
+1111
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+#### #### .... ####
+#### #### #### ####
+
+=== Longest path so far with depth = 9 (exit 1,2) ===
+Letters:
+001a
+30BA
+01B0
+11B1
+1141
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+#### #### UDL. ####
+#### #### .... ####
+
+=== Longest path so far with depth = 10 (exit 1,2) ===
+Letters:
+001a
+30BA
+01B0
+11B1
+14Cc
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+#### #### UDL. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 11 (exit 1,2) ===
+Letters:
+001a
+300A
+0100
+1421
+10Bb
+
+Push masks:
+.... .... #### ####
+.... .... .... U...
+.... #### .... ....
+#### .... UDL. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 12 (exit 1,2) ===
+Letters:
+00b1
+AAB1
+00Bc
+122C
+1400
+
+Push masks:
+.... .... #### ####
+.D.. .DL. U... ####
+.... .... U... ####
+#### U... ..L. U...
+#### .... .... ....
+
+=== Longest path so far with depth = 13 (exit 1,2) ===
+Letters:
+00b1
+AAB1
+00Bc
+122C
+4000
+
+Push masks:
+.... .... #### ####
+.D.. .DL. U... ####
+.... .... U... ####
+#### U... ..L. U...
+.... .... .... ....
+
+=== Longest path so far with depth = 14 (exit 1,2) ===
+Letters:
+00b1
+AAB1
+00Bc
+122C
+dDD4
+
+Push masks:
+.... .... #### ####
+.D.. .DL. U... ####
+.... .... U... ####
+#### U... ..L. U...
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 15 (exit 1,2) ===
+Letters:
+00b1
+AAB1
+00B1
+1224
+cCC0
+
+Push masks:
+.... .... #### ####
+.D.. .DL. U... ####
+.... .... U... ####
+#### U... ..L. ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 16 (exit 1,2) ===
+Letters:
+0001
+AA01
+0024
+1220
+bBB0
+
+Push masks:
+.... .... .... ####
+.D.. .DL. .... ####
+.... .... U... ....
+#### U... ..L. ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 17 (exit 1,2) ===
+Letters:
+0001
+Ab00
+aB22
+0200
+0040
+
+Push masks:
+.... .... .... ####
+.D.. #### .... ....
+#### U... ...R U...
+.... ...R .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 18 (exit 1,2) ===
+Letters:
+0001
+Ab00
+aB22
+0200
+0400
+
+Push masks:
+.... .... .... ####
+.D.. #### .... ....
+#### U... ...R U...
+.... ...R .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 19 (exit 1,2) ===
+Letters:
+0001
+Ab00
+aB22
+0200
+4000
+
+Push masks:
+.... .... .... ####
+.D.. #### .... ....
+#### U... ...R U...
+.... ...R .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 20 (exit 1,2) ===
+Letters:
+0001
+Ab00
+aBC2
+42C0
+0DDd
+
+Push masks:
+.... .... .... ####
+.D.. #### .... ....
+#### U... ...R U...
+.... ...R U..R ....
+.... ...R ...R ####
+
+=== Longest path so far with depth = 21 (exit 1,2) ===
+Letters:
+aA00
+3204
+0220
+1020
+bBB0
+
+Push masks:
+#### ..L. .... ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 22 (exit 1,2) ===
+Letters:
+aA04
+3200
+0220
+1020
+bBB0
+
+Push masks:
+#### ..L. .... ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 23 (exit 1,2) ===
+Letters:
+aA40
+3200
+0220
+1020
+bBB0
+
+Push masks:
+#### ..L. .... ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 24 (exit 1,2) ===
+Letters:
+1400
+3200
+0220
+1020
+aAA0
+
+Push masks:
+#### .... .... ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 25 (exit 1,2) ===
+Letters:
+0020
+3204
+0220
+1020
+aAA0
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 26 (exit 1,2) ===
+Letters:
+0020
+3200
+0224
+1020
+aAA0
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 27 (exit 1,2) ===
+Letters:
+0020
+3200
+0220
+1024
+aAA0
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 28 (exit 1,2) ===
+Letters:
+0020
+3200
+0220
+1020
+aAA4
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 29 (exit 1,2) ===
+Letters:
+0020
+3200
+0220
+1020
+aA40
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### ..L. .... ....
+
+=== Longest path so far with depth = 30 (exit 1,2) ===
+Letters:
+0020
+3200
+0220
+1020
+1400
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### .... .... ....
+
+=== Longest path so far with depth = 31 (exit 1,2) ===
+Letters:
+0020
+3200
+0220
+1420
+1000
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... U..R ....
+#### .... .... ....
+
+=== Longest path so far with depth = 1 (exit 1,3) ===
+Letters:
+1111
+4111
+A111
+a111
+1111
+
+Push masks:
+#### #### #### ####
+.... #### #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 1,3) ===
+Letters:
+4111
+A111
+A111
+a111
+1111
+
+Push masks:
+.... #### #### ####
+.D.. #### #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 3 (exit 1,3) ===
+Letters:
+0411
+A111
+A111
+a111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. #### #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 1,3) ===
+Letters:
+0011
+2411
+3111
+0111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. .... #### ####
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 1,3) ===
+Letters:
+0011
+AA41
+3111
+0111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. .DL. .... ####
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 1,3) ===
+Letters:
+0011
+AAA4
+3111
+0111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. .DL. .DL. ....
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 1,3) ===
+Letters:
+0014
+AAAB
+311b
+0111
+1111
+
+Push masks:
+.... .... #### ....
+.D.. .DL. .DL. .D..
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 1,3) ===
+Letters:
+001a
+002A
+3140
+0111
+1111
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### .... ....
+.... #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 9 (exit 1,3) ===
+Letters:
+001a
+00BA
+31B0
+0141
+1111
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+.... #### .... ####
+#### #### #### ####
+
+=== Longest path so far with depth = 10 (exit 1,3) ===
+Letters:
+001a
+00BA
+31B0
+01B1
+1141
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+.... #### UDL. ####
+#### #### .... ####
+
+=== Longest path so far with depth = 11 (exit 1,3) ===
+Letters:
+001a
+00BA
+31B0
+01B1
+14Cc
+
+Push masks:
+.... .... #### ####
+.... .... .DL. U...
+.... #### UDL. ....
+.... #### UDL. ####
+#### .... ...R ####
+
+=== Longest path so far with depth = 12 (exit 1,3) ===
+Letters:
+000b
+002B
+A100
+a101
+4CCc
+
+Push masks:
+.... .... .... ####
+.... .... ..L. U...
+.D.. #### .... ....
+#### #### .... ####
+.... ...R ...R ####
+
+=== Longest path so far with depth = 13 (exit 1,3) ===
+Letters:
+0001
+0101
+A00b
+a22B
+1400
+
+Push masks:
+.... .... .... ####
+.... #### .... ####
+.D.. .... .... ####
+#### U... ..L. U...
+#### .... .... ....
+
+=== Longest path so far with depth = 14 (exit 1,3) ===
+Letters:
+0001
+0101
+A00b
+a22B
+4000
+
+Push masks:
+.... .... .... ####
+.... #### .... ####
+.D.. .... .... ####
+#### U... ..L. U...
+.... .... .... ....
+
+=== Longest path so far with depth = 15 (exit 1,3) ===
+Letters:
+0001
+0101
+A00b
+a22B
+cCC4
+
+Push masks:
+.... .... .... ####
+.... #### .... ####
+.D.. .... .... ####
+#### U... ..L. U...
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 16 (exit 1,3) ===
+Letters:
+0001
+0101
+A001
+a224
+bBB0
+
+Push masks:
+.... .... .... ####
+.... #### .... ####
+.D.. .... .... ####
+#### U... ..L. ....
+#### ..L. ..L. ....
+
+=== Longest path so far with depth = 17 (exit 1,3) ===
+Letters:
+0020
+0200
+3220
+0100
+1400
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... .DL. .D.. ....
+.... #### .... ....
+#### .... .... ....
+
+=== Longest path so far with depth = 18 (exit 1,3) ===
+Letters:
+0020
+0204
+322A
+002A
+111a
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+.... .DL. .D.. .D..
+.... .... ..L. .D..
+#### #### #### ####
+
+=== Longest path so far with depth = 19 (exit 1,3) ===
+Letters:
+0024
+020A
+322A
+002A
+111a
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... .D..
+.... .DL. .D.. .D..
+.... .... ..L. .D..
+#### #### #### ####
+
+=== Longest path so far with depth = 20 (exit 1,3) ===
+Letters:
+aAA0
+1014
+3200
+0220
+1020
+
+Push masks:
+#### ..L. ..L. ....
+#### .... #### ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... ..L. ....
+
+=== Longest path so far with depth = 21 (exit 1,3) ===
+Letters:
+aAA4
+1010
+3200
+0220
+1020
+
+Push masks:
+#### ..L. ..L. ....
+#### .... #### ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... ..L. ....
+
+=== Longest path so far with depth = 22 (exit 1,3) ===
+Letters:
+aA40
+1010
+3200
+0220
+1020
+
+Push masks:
+#### ..L. .... ....
+#### .... #### ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... ..L. ....
+
+=== Longest path so far with depth = 23 (exit 1,3) ===
+Letters:
+1400
+1010
+3200
+0220
+1020
+
+Push masks:
+#### .... .... ....
+#### .... #### ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... ..L. ....
+
+=== Longest path so far with depth = 24 (exit 1,3) ===
+Letters:
+1000
+1410
+3200
+0220
+1020
+
+Push masks:
+#### .... .... ....
+#### .... #### ....
+.... .D.. .... ....
+.... ..L. .D.. ....
+#### .... ..L. ....
+
+=== Longest path so far with depth = 25 (exit 1,3) ===
+Letters:
+1020
+aA20
+3CC0
+0220
+1bB4
+
+Push masks:
+#### .... ..L. ....
+#### ..L. U... ....
+.... .D.. .DL. ....
+.... ..L. U... ....
+#### #### ..L. ....
+
+=== Longest path so far with depth = 26 (exit 1,3) ===
+Letters:
+1020
+aA20
+3BB0
+0220
+1140
+
+Push masks:
+#### .... ..L. ....
+#### ..L. U... ....
+.... .D.. .DL. ....
+.... ..L. U... ....
+#### #### .... ....
+
+=== Longest path so far with depth = 27 (exit 1,3) ===
+Letters:
+1020
+aA20
+3BB0
+0220
+1400
+
+Push masks:
+#### .... ..L. ....
+#### ..L. U... ....
+.... .D.. .DL. ....
+.... ..L. U... ....
+#### .... .... ....
+
+=== Longest path so far with depth = 1 (exit 2,1) ===
+Letters:
+1311
+1411
+1111
+1111
+1111
+
+Push masks:
+#### .... #### ####
+#### .... #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 2,1) ===
+Letters:
+1311
+aA41
+1111
+1111
+1111
+
+Push masks:
+#### .... #### ####
+#### ..L. .... ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 3 (exit 2,1) ===
+Letters:
+1311
+aAA4
+1111
+1111
+1111
+
+Push masks:
+#### .... #### ####
+#### ..L. ..L. ....
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 2,1) ===
+Letters:
+1314
+aAAB
+111b
+1111
+1111
+
+Push masks:
+#### .... #### ....
+#### ..L. ..L. .D..
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 2,1) ===
+Letters:
+131a
+002A
+1140
+1111
+1111
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### .... ....
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 2,1) ===
+Letters:
+131a
+00BA
+11B0
+1141
+1111
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### U.L. ....
+#### #### .... ####
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 2,1) ===
+Letters:
+131a
+00BA
+11B0
+14Cc
+1111
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### U.L. ....
+#### .... ...R ####
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 2,1) ===
+Letters:
+131a
+00BA
+11B0
+4CCc
+1111
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### U.L. ....
+.... ...R ...R ####
+#### #### #### ####
+
+=== Longest path so far with depth = 9 (exit 2,1) ===
+Letters:
+131a
+00BA
+d1B0
+DCCc
+4111
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### U.L. ....
+U... ...R ...R ####
+.... #### #### ####
+
+=== Longest path so far with depth = 10 (exit 2,1) ===
+Letters:
+131a
+00BA
+c1B0
+C200
+0411
+
+Push masks:
+#### .... #### ####
+.... .... ..L. U...
+#### #### U.L. ....
+U... ...R .... ....
+.... .... #### ####
+
+=== Longest path so far with depth = 11 (exit 2,1) ===
+Letters:
+131a
+000A
+1100
+0421
+0200
+
+Push masks:
+#### .... #### ####
+.... .... .... U...
+#### #### .... ....
+.... .... U.L. ####
+.... ...R .... ....
+
+=== Longest path so far with depth = 12 (exit 2,1) ===
+Letters:
+031a
+D20A
+DCcA
+4B00
+1b11
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+U... ...R #### U...
+.... .D.. .... ....
+#### #### #### ####
+
+=== Longest path so far with depth = 13 (exit 2,1) ===
+Letters:
+031a
+D20A
+DCcA
+DB00
+4b11
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+U... ...R #### U...
+U... .D.. .... ....
+.... #### #### ####
+
+=== Longest path so far with depth = 14 (exit 2,1) ===
+Letters:
+031a
+C20A
+CBbA
+C200
+0411
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+U... ...R #### U...
+U... .D.. .... ....
+.... .... #### ####
+
+=== Longest path so far with depth = 15 (exit 2,1) ===
+Letters:
+031a
+C20A
+CBbA
+C200
+4201
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+U... ...R #### U...
+U... .D.. .... ....
+.... ...R .... ####
+
+=== Longest path so far with depth = 16 (exit 2,1) ===
+Letters:
+031a
+C20A
+CBbA
+4200
+0201
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+U... ...R #### U...
+.... .D.. .... ....
+.... ...R .... ####
+
+=== Longest path so far with depth = 17 (exit 2,1) ===
+Letters:
+031a
+220A
+4BbA
+0200
+0201
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+.... ...R #### U...
+.... .D.. .... ....
+.... ...R .... ####
+
+=== Longest path so far with depth = 18 (exit 2,1) ===
+Letters:
+031a
+220A
+041A
+0200
+0201
+
+Push masks:
+.... .... #### ####
+U... ..L. .... U...
+.... .... #### U...
+.... .D.. .... ....
+.... ...R .... ####
+
+=== Longest path so far with depth = 19 (exit 2,1) ===
+Letters:
+0310
+2AA4
+0202
+0200
+0001
+
+Push masks:
+.... .... #### ....
+U... ..L. ..L. ....
+.... ...R .... U...
+.... .D.. .... ....
+.... .... .... ####
+
+=== Longest path so far with depth = 20 (exit 2,1) ===
+Letters:
+0314
+2AA0
+0202
+0200
+0001
+
+Push masks:
+.... .... #### ....
+U... ..L. ..L. ....
+.... ...R .... U...
+.... .D.. .... ....
+.... .... .... ####
+
+=== Longest path so far with depth = 21 (exit 2,1) ===
+Letters:
+0301
+2220
+0140
+0020
+1aA0
+
+Push masks:
+.... .... .... ####
+U... ..L. U... ....
+.... #### .... ....
+.... .... U... ....
+#### #### ..L. ....
+
+=== Longest path so far with depth = 22 (exit 2,1) ===
+Letters:
+0301
+2220
+0bB4
+0020
+1aA0
+
+Push masks:
+.... .... .... ####
+U... ..L. U... ....
+.... #### ..L. ....
+.... .... U... ....
+#### #### ..L. ....
+
+=== Longest path so far with depth = 23 (exit 2,1) ===
+Letters:
+0301
+2224
+0bB0
+0020
+1aA0
+
+Push masks:
+.... .... .... ####
+U... ..L. U... ....
+.... #### ..L. ....
+.... .... U... ....
+#### #### ..L. ....
+
+=== Longest path so far with depth = 24 (exit 2,1) ===
+Letters:
+0301
+2220
+0bB0
+0020
+1aA4
+
+Push masks:
+.... .... .... ####
+U... ..L. U... ....
+.... #### ..L. ....
+.... .... U... ....
+#### #### ..L. ....
+
+=== Longest path so far with depth = 25 (exit 2,1) ===
+Letters:
+0301
+2220
+0aA0
+0020
+1140
+
+Push masks:
+.... .... .... ####
+U... ..L. U... ....
+.... #### ..L. ....
+.... .... U... ....
+#### #### .... ....
+
+=== Longest path so far with depth = 26 (exit 2,1) ===
+Letters:
+a301
+AB20
+0B20
+2020
+0004
+
+Push masks:
+#### .... .... ####
+U... ...R U... ....
+.... U..R ..L. ....
+.D.. .... U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 27 (exit 2,1) ===
+Letters:
+a301
+AB20
+0B20
+2024
+0000
+
+Push masks:
+#### .... .... ####
+U... ...R U... ....
+.... U..R ..L. ....
+.D.. .... U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 28 (exit 2,1) ===
+Letters:
+a301
+AB20
+0B24
+2020
+0000
+
+Push masks:
+#### .... .... ####
+U... ...R U... ....
+.... U..R ..L. ....
+.D.. .... U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 29 (exit 2,1) ===
+Letters:
+a301
+AB24
+0B20
+2020
+0000
+
+Push masks:
+#### .... .... ####
+U... ...R U... ....
+.... U..R ..L. ....
+.D.. .... U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 1 (exit 2,2) ===
+Letters:
+1411
+1A11
+1a11
+1111
+1111
+
+Push masks:
+#### .... #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 2,2) ===
+Letters:
+bB41
+1A11
+1a11
+1111
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 2,2) ===
+Letters:
+aA01
+1BB4
+1011
+1111
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. ....
+#### .... #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+1014
+1111
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### ....
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+101C
+1114
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### #### #### ....
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+101C
+1140
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### #### .... ....
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+10dC
+11D0
+1141
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### #### U... ....
+#### #### .... ####
+
+=== Longest path so far with depth = 9 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+10dC
+11D0
+14Ee
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### #### U... ....
+#### .... ...R ####
+
+=== Longest path so far with depth = 10 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+10dC
+11D0
+4EEe
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### #### U... ....
+.... ...R ...R ####
+
+=== Longest path so far with depth = 11 (exit 2,2) ===
+Letters:
+aA0c
+1BBC
+10dC
+41D0
+0EEe
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+.... #### U... ....
+.... ...R ...R ####
+
+=== Longest path so far with depth = 12 (exit 2,2) ===
+Letters:
+0201
+1301
+4220
+0201
+0AAa
+
+Push masks:
+.... ..L. .... ####
+#### .... .... ####
+.... UD.. ...R ....
+.... ..L. .... ####
+.... ...R ...R ####
+
+=== Longest path so far with depth = 13 (exit 2,2) ===
+Letters:
+0201
+1A01
+0AB0
+22B1
+04Cc
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ####
+.... UD.. ...R ....
+U... ..L. U..R ####
+.... .... ...R ####
+
+=== Longest path so far with depth = 14 (exit 2,2) ===
+Letters:
+0201
+1A01
+0AB0
+22B1
+0041
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ####
+.... UD.. ...R ....
+U... ..L. U..R ####
+.... .... .... ####
+
+=== Longest path so far with depth = 15 (exit 2,2) ===
+Letters:
+0201
+1A01
+0A20
+2241
+0001
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ####
+.... UD.. ...R ....
+U... ..L. .... ####
+.... .... .... ####
+
+=== Longest path so far with depth = 16 (exit 2,2) ===
+Letters:
+0201
+1A01
+0A20
+2BB4
+0001
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ####
+.... UD.. ...R ....
+U... ..L. ..L. ....
+.... .... .... ####
+
+=== Longest path so far with depth = 17 (exit 2,2) ===
+Letters:
+0201
+1A01
+0A24
+2BBC
+000c
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ####
+.... UD.. ...R ....
+U... ..L. ..L. .D..
+.... .... .... ####
+
+=== Longest path so far with depth = 18 (exit 2,2) ===
+Letters:
+0201
+1A00
+0A22
+2BB4
+0001
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ....
+.... UD.. ...R U...
+U... ..L. ..L. ....
+.... .... .... ####
+
+=== Longest path so far with depth = 19 (exit 2,2) ===
+Letters:
+0201
+1A00
+0A22
+2200
+0004
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ....
+.... UD.. ...R U...
+U... ..L. .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 20 (exit 2,2) ===
+Letters:
+0201
+1A00
+4A22
+0200
+0BBb
+
+Push masks:
+.... ..L. .... ####
+#### UD.. .... ....
+.... UD.. ...R U...
+.... ...R .... ....
+.... ...R ...R ####
+
+=== Longest path so far with depth = 21 (exit 2,2) ===
+Letters:
+0201
+1301
+0224
+0200
+0000
+
+Push masks:
+.... ..L. .... ####
+#### .... .... ####
+.... UD.. ..L. ....
+.... ...R .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 22 (exit 2,2) ===
+Letters:
+020c
+aBBC
+AD2C
+0D00
+4020
+
+Push masks:
+.... ..L. .... ####
+#### UD.. UDL. U...
+U... ...R .D.. U...
+.... U..R .... ....
+.... .... ..L. ....
+
+=== Longest path so far with depth = 23 (exit 2,2) ===
+Letters:
+020c
+aBBC
+A22C
+410C
+0000
+
+Push masks:
+.... ..L. .... ####
+#### UD.. UDL. U...
+U... ...R .D.. U...
+.... #### .... U...
+.... .... .... ....
+
+=== Longest path so far with depth = 24 (exit 2,2) ===
+Letters:
+020b
+1AAB
+422B
+010B
+0000
+
+Push masks:
+.... ..L. .... ####
+#### UD.. UDL. U...
+.... ...R .D.. U...
+.... #### .... U...
+.... .... .... ....
+
+=== Longest path so far with depth = 25 (exit 2,2) ===
+Letters:
+020c
+aBBC
+A22C
+402C
+0000
+
+Push masks:
+.... ..L. .... ####
+#### UD.. UDL. U...
+U... ...R .D.. U...
+.... .... ..L. U...
+.... .... .... ....
+
+=== Longest path so far with depth = 26 (exit 2,2) ===
+Letters:
+020b
+1AAB
+422B
+002B
+0000
+
+Push masks:
+.... ..L. .... ####
+#### UD.. UDL. U...
+.... ...R .D.. U...
+.... .... ..L. U...
+.... .... .... ....
+
+=== Longest path so far with depth = 27 (exit 2,2) ===
+Letters:
+0100
+0A20
+0A20
+2020
+0004
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 28 (exit 2,2) ===
+Letters:
+0100
+0A20
+0A20
+2024
+0000
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 29 (exit 2,2) ===
+Letters:
+0100
+0A20
+0A24
+2020
+0000
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 30 (exit 2,2) ===
+Letters:
+0100
+0A24
+0A20
+2020
+0000
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 31 (exit 2,2) ===
+Letters:
+0104
+0A20
+0A20
+2020
+0000
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 32 (exit 2,2) ===
+Letters:
+0140
+0A20
+0A20
+2020
+0000
+
+Push masks:
+.... #### .... ....
+.... U..R .D.. ....
+.... U..R U.L. ....
+.D.. .... .DL. ....
+.... .... .... ....
+
+=== Longest path so far with depth = 33 (exit 2,2) ===
+Letters:
+a104
+AB20
+0B20
+2010
+0000
+
+Push masks:
+#### #### .... ....
+U... U..R .D.. ....
+.... U..R ..L. ....
+.D.. .... #### ....
+.... .... .... ....
+
+=== Longest path so far with depth = 34 (exit 2,2) ===
+Letters:
+a140
+AB20
+0B20
+2010
+0000
+
+Push masks:
+#### #### .... ....
+U... U..R .D.. ....
+.... U..R ..L. ....
+.D.. .... #### ....
+.... .... .... ....
+
+=== Longest path so far with depth = 1 (exit 2,3) ===
+Letters:
+1111
+1411
+1A11
+1a11
+1111
+
+Push masks:
+#### #### #### ####
+#### .... #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 2 (exit 2,3) ===
+Letters:
+1411
+1A11
+1A11
+1a11
+1111
+
+Push masks:
+#### .... #### ####
+#### .D.. #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 3 (exit 2,3) ===
+Letters:
+bB41
+1A11
+1A11
+1a11
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 4 (exit 2,3) ===
+Letters:
+aA01
+1241
+1311
+1011
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .... ####
+#### .... #### ####
+#### .... #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 5 (exit 2,3) ===
+Letters:
+aA01
+1BB4
+1311
+1011
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. ....
+#### .... #### ####
+#### .... #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 6 (exit 2,3) ===
+Letters:
+aA0c
+1BBC
+1314
+1011
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### ....
+#### .... #### ####
+#### #### #### ####
+
+=== Longest path so far with depth = 7 (exit 2,3) ===
+Letters:
+aA0c
+1BBC
+131C
+1014
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### .... #### ....
+#### #### #### ####
+
+=== Longest path so far with depth = 8 (exit 2,3) ===
+Letters:
+aA0c
+1BBC
+131C
+101C
+1114
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### .... #### U...
+#### #### #### ....
+
+=== Longest path so far with depth = 9 (exit 2,3) ===
+Letters:
+aA0c
+1BBC
+131C
+101C
+1140
+
+Push masks:
+#### ..L. .... ####
+#### .D.. .DL. U...
+#### .... #### U...
+#### .... #### U...
+#### #### .... ....
+
+=== Longest path so far with depth = 20 (exit 2,3) ===
+Letters:
+0420
+1B00
+aB00
+A201
+0001
+
+Push masks:
+.... .... ..L. ....
+#### .D.. .... ....
+#### .D.. .... ....
+U... U..R .... ####
+.... .... .... ####
+
+=== Longest path so far with depth = 21 (exit 2,3) ===
+Letters:
+4020
+1B00
+aB00
+A201
+0001
+
+Push masks:
+.... .... ..L. ....
+#### .D.. .... ....
+#### .D.. .... ....
+U... U..R .... ####
+.... .... .... ####
+
+=== Longest path so far with depth = 22 (exit 2,3) ===
+Letters:
+0020
+4200
+1300
+0201
+0001
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+#### .... .... ....
+.... U..R .... ####
+.... .... .... ####
+
+=== Longest path so far with depth = 23 (exit 2,3) ===
+Letters:
+4020
+1B00
+aB00
+A220
+0000
+
+Push masks:
+.... .... ..L. ....
+#### .D.. .... ....
+#### .D.. .... ....
+U... ...R U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 24 (exit 2,3) ===
+Letters:
+0020
+4200
+1300
+0220
+0000
+
+Push masks:
+.... .... ..L. ....
+.... .D.. .... ....
+#### .... .... ....
+.... ...R U... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 25 (exit 2,3) ===
+Letters:
+cC40
+0B1A
+0B1A
+220A
+011a
+
+Push masks:
+#### ..L. .... ....
+.... .D.. #### .D..
+.... .D.. #### .D..
+.D.. ..L. .... .D..
+.... #### #### ####
+
+=== Longest path so far with depth = 26 (exit 2,3) ===
+Letters:
+cCC4
+0B1A
+0B1A
+220A
+011a
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### .D..
+.... .D.. #### .D..
+.D.. ..L. .... .D..
+.... #### #### ####
+
+=== Longest path so far with depth = 27 (exit 2,3) ===
+Letters:
+cCC0
+0B14
+0B1A
+220A
+011a
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### .D..
+.D.. ..L. .... .D..
+.... #### #### ####
+
+=== Longest path so far with depth = 28 (exit 2,3) ===
+Letters:
+cCC0
+0B10
+0B14
+220A
+011a
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... .D..
+.... #### #### ####
+
+=== Longest path so far with depth = 29 (exit 2,3) ===
+Letters:
+bBB0
+0A10
+0A10
+2204
+0111
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... ....
+.... #### #### ####
+
+=== Longest path so far with depth = 30 (exit 2,3) ===
+Letters:
+bBB0
+0A10
+0A10
+2200
+0114
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... ....
+.... #### #### ....
+
+=== Longest path so far with depth = 31 (exit 2,3) ===
+Letters:
+bBB0
+0A10
+0A10
+2200
+0140
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... ....
+.... #### .... ....
+
+=== Longest path so far with depth = 32 (exit 2,3) ===
+Letters:
+bBB0
+0A10
+0A10
+2200
+0400
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 33 (exit 2,3) ===
+Letters:
+bBB0
+0A10
+0A10
+2200
+4000
+
+Push masks:
+#### ..L. ..L. ....
+.... .D.. #### ....
+.... .D.. #### ....
+.D.. ..L. .... ....
+.... .... .... ....
+
+=== Longest path so far with depth = 40 (exit 2,3) ===
+Letters:
+1420
+0A20
+0A10
+0200
+0000
+
+Push masks:
+#### .... ..L. ....
+.... .D.. .D.R ....
+.... .D.. #### ....
+.... ..L. .... ....
+.... .... .... ....
+

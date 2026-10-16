@@ -1,0 +1,44 @@
+Board loaded: 5×5 inner grid (border walls added automatically)
+Exit: inner (2,3)
+Target steps: 69
+
+Input board:
+Letters:
+bBBB0
+0A120
+0A024
+02022
+00000
+
+Push masks:
+#### ..L. ..L. ..L. ....
+.... .D.. #### .DL. ....
+.... .D.. .... .D.R ....
+.... ..L. .... U... U...
+.... .... .... .... ....
+
+Starting forward BFS with target_steps=69, quick_check_only=false, state_limit=None
+Initial board:
+=== Initial Board (exit 2,3) ===
+Letters:
+bBBB0
+0A120
+0A024
+02022
+00000
+
+Push masks:
+#### ..L. ..L. ..L. ....
+.... .D.. #### .DL. ....
+.... .D.. .... .D.R ....
+.... ..L. .... U... U...
+.... .... .... .... ....
+Processing node at step 0 with player at (5, 3), qstate [16, 23, 8, 9, 10, 11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255], box_state [], fingerprint f28b364a23129ce3, qstate len 6
+Processing node at step 3 with player at (4, 1), qstate [16, 23, 8, 9, 10, 10, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255], box_state [], fingerprint 335f20d8da8cca8c, qstate len 6
+Processing node at step 4 with player at (3, 1), qstate [16, 23, 8, 9, 9, 9, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255], box_state [], fingerprint b12312b864bdc5d1, qstate len 6
+Processing node at step 5 with player at (2, 1), qstate [16, 23, 8, 8, 8, 8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255], box_state [], fingerprint 9b102d87ea7e9529, qstate len 6
+Processing node at step 6 with player at (2, 2), qstate [23, 23, 8, 8, 8, 8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255], box_state [], fingerprint f4da0e0f20997f7a, qstate len 6
+Result: SOLUTION AT EXACT STEP COUNT
+  The player reaches the exit in exactly 69 steps
+  No starting positions are ruled out; the board is fully determined.
+Time taken: 4.0768ms

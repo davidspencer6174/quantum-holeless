@@ -1,0 +1,13 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\quantum-baseline-20261015.exe",
+  "arguments": [
+    "5",
+    "5"
+  ],
+  "elapsed_seconds": 180.059,
+  "peak_working_set_mib": 14.42,
+  "sampled_peak_private_mib": 11.82,
+  "timed_out": true,
+  "exit_code": -1,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\baseline-5x5-20261015-190107-013"
+}

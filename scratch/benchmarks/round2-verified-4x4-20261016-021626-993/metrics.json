@@ -1,0 +1,13 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\quantum.exe",
+  "arguments": [
+    "4",
+    "4"
+  ],
+  "elapsed_seconds": 0.285,
+  "peak_working_set_mib": 5.08,
+  "sampled_peak_private_mib": 1.35,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\round2-verified-4x4-20261016-021626-993"
+}

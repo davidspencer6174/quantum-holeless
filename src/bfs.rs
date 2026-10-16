@@ -27,10 +27,9 @@
 //   SomeClean { ruled_out } — at least one assignment is not covered.
 //       ruled_out: (original QB index, start_pos) pairs to remove from the board.
 
-use rustc_hash::{FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use smallvec::{SmallVec};
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 use crate::board::{QuantumBoard, MAX_TILES};
 use crate::deadlock::{effective_tile, BoxState};
@@ -51,25 +50,49 @@ pub trait VisitedTracker {
     fn contains(&self, fp: u64) -> bool;
     fn insert(&mut self, fp: u64, steps: u32) -> bool;
     fn len(&self) -> usize;
-    /// Called after a child fingerprint is successfully inserted.
-    /// The default implementation is a no-op; override to record parent pointers.
-    fn record_parent(&mut self, _child_fp: u64, _parent_fp: u64, _steps: u32) {}
+    /// Return false if this arrival is dominated by an already queued/settled one.
+    fn record_parent(&mut self, _child: &BfsNode, _parent_fp: u64, _slots: &[StartSlot]) -> bool { true }
 }
 
-// Wrapper for FxHashSet<u64>
-pub struct SimpleVisited(pub FxHashSet<u64>);
+pub struct SimpleVisited {
+    // u32::MAX marks a settled state; other values are best queued costs.
+    costs: FxHashMap<u64, u32>,
+    settled: usize,
+}
+
+impl SimpleVisited {
+    pub fn new() -> Self {
+        Self { costs: FxHashMap::default(), settled: 0 }
+    }
+}
 
 impl VisitedTracker for SimpleVisited {
     fn contains(&self, fp: u64) -> bool {
-        self.0.contains(&fp)
+        self.costs.get(&fp) == Some(&u32::MAX)
     }
 
     fn insert(&mut self, fp: u64, steps: u32) -> bool {
-        self.0.insert(fp)
+        let cost = self.costs.entry(fp).or_insert(steps);
+        if *cost == u32::MAX || steps > *cost { return false; }
+        *cost = u32::MAX;
+        self.settled += 1;
+        true
     }
 
     fn len(&self) -> usize {
-        self.0.len()
+        self.settled
+    }
+
+    fn record_parent(&mut self, child: &BfsNode, _parent_fp: u64, _slots: &[StartSlot]) -> bool {
+        match self.costs.entry(node_fingerprint(child)) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let cost = *entry.get();
+                if cost == u32::MAX || cost <= child.steps { return false; }
+                entry.insert(child.steps);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(child.steps); }
+        }
+        true
     }
 }
 
@@ -104,6 +127,33 @@ pub struct SearchContext {
     ///   (b) it holds at least one valid QB slot whose push_mask includes the direction.
     pub pushable: [u128; 4],
     pub relaxed_cache: RelaxedCache,
+    /// Shortest exit distances with all blocks removed, but fixed walls retained.
+    pub exit_distances: [u8; MAX_TILES],
+}
+
+pub fn wall_distances(board: &QuantumBoard, exit: FlatIdx) -> [u8; MAX_TILES] {
+    let mut distances = [u8::MAX; MAX_TILES];
+    let mut queue = [0; MAX_TILES];
+    distances[exit as usize] = 0;
+    queue[0] = exit;
+    let (mut head, mut tail) = (0, 1);
+    while head < tail {
+        let pos = queue[head];
+        head += 1;
+        let (x, y) = board.coords(pos);
+        for dir in Dir::all() {
+            if let Some((nx, ny)) = dir.apply(x, y) {
+                if !board.in_inner(nx, ny) { continue; }
+                let next = board.flat(nx, ny);
+                if board.get_flat(next) != Tile::Wall && distances[next as usize] == u8::MAX {
+                    distances[next as usize] = distances[pos as usize] + 1;
+                    queue[tail] = next;
+                    tail += 1;
+                }
+            }
+        }
+    }
+    distances
 }
 
 // ── Fingerprint ───────────────────────────────────────────────────────────────
@@ -113,7 +163,7 @@ pub fn node_fingerprint(node: &BfsNode) -> u64 {
 }
 #[inline(never)] // Mark this explicitely, as it's a known hotspot we want to measure
 pub fn fingerprint_raw(player: FlatIdx, qstate: &QState, box_state: &BoxState) -> u64 {
-    let mut h = DefaultHasher::new();
+    let mut h = FxHasher::default();
     player.hash(&mut h);
     qstate.hash(&mut h);
     box_state.hash(&mut h);
@@ -127,6 +177,9 @@ pub enum BfsResult {
     SomeClean {
         ruled_out: Vec<(usize, FlatIdx)>,
         shortcuts: Vec<Shortcut>,
+        /// A clean assignment exists with the exit initially uncovered.
+        /// False does not prune backward exploration of this intermediate state.
+        publishable: bool,
     },
     Indeterminate {
         ruled_out: Vec<(usize, FlatIdx)>,
@@ -209,6 +262,8 @@ pub fn refresh_witness_in_pool(
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
 ) -> Option<usize> {
+    #[cfg(feature = "profile-search")]
+    let _timer = crate::search_profile::Timer::start(1);
     // Fast-path: existing witness index still valid
     if let Some(idx) = witness_idx {
         if idx < pool.len() {
@@ -219,15 +274,12 @@ pub fn refresh_witness_in_pool(
         }
     }
 
-    // Check the rest of the pool for a reusable witness.
-    for (i, a) in pool.iter().enumerate() {
-        if crate::qstate::assignment_valid_in(a, qstate) && !crate::qstate::assignment_covered(a, shortcuts) {
-            return Some(i);
-        }
-    }
-
-    // Fallback: expensive search for a fresh witness.
+    // A failed carried witness often means this state has no witness at all.
+    // Search its small domains directly instead of rescanning the historical pool.
     if let Some(a) = find_uncovered_witness(qstate, slots, num_qbs, shortcuts) {
+        if let Some(idx) = pool.iter().position(|existing| existing == &a) {
+            return Some(idx);
+        }
         pool.push(a);
         if pool.len() % 1000 == 0{
             println!("Witness pool size: {}", pool.len());
@@ -281,6 +333,9 @@ pub struct ForwardBfsCallbacks<'a> {
     pub any_shortcut_found:   &'a mut bool,
     pub any_clean_found:      &'a mut bool,
     pub slot_has_clean:       &'a mut Vec<bool>,
+    pub publishable: &'a mut bool,
+    pub exit_start_slots: u64,
+    pub concrete_exit_covered: bool,
 }
 
 impl<'a> BfsCallbacks for ForwardBfsCallbacks<'a> {
@@ -315,6 +370,18 @@ impl<'a> BfsCallbacks for ForwardBfsCallbacks<'a> {
         shortcut_constraints: &[ShortcutConstraints],
     ) {
         *self.any_clean_found = true;
+        if !*self.publishable && !self.concrete_exit_covered {
+            let mut uncovered = node.qstate.clone();
+            let mut forbidden = self.exit_start_slots;
+            while forbidden != 0 {
+                let i = forbidden.trailing_zeros() as usize;
+                forbidden &= forbidden - 1;
+                uncovered.invalidate(i);
+            }
+            *self.publishable = find_uncovered_witness(
+                &uncovered, slots, num_qbs, shortcut_constraints,
+            ).is_some();
+        }
         if let Some(idx) = node.witness_idx {
             for &slot_i in pool[idx].iter() {
                 self.slot_has_clean[slot_i as usize] = true;
@@ -371,6 +438,7 @@ pub fn forward_bfs(
             BfsResult::SomeClean {
                 ruled_out: vec![],
                 shortcuts: vec![],
+                publishable: true,
             }
         };
     }
@@ -460,6 +528,7 @@ pub fn forward_bfs(
     // zero-QB case where slot_has_clean is empty.
     let mut slot_has_clean: Vec<bool> = vec![false; slots.len()];
     let mut any_clean_found = false;
+    let mut publishable = false;
     let mut any_shortcut_found = false;
 
     // Shared assignment pool used by quick checks and the main search.
@@ -591,7 +660,7 @@ pub fn forward_bfs(
         None => return BfsResult::AllShortcut,
     };
 
-    let mut visited = SimpleVisited(FxHashSet::default());
+    let mut visited = SimpleVisited::new();
 
     //let mut relaxed_cache = RelaxedCache::new();
     let mut ctx = SearchContext {
@@ -603,6 +672,7 @@ pub fn forward_bfs(
         static_inner_mask,
         pushable: [0; 4],
         relaxed_cache: RelaxedCache::new(),
+        exit_distances: wall_distances(board, exit),
     };
 
     let cap = target_steps as usize + 1;
@@ -627,6 +697,11 @@ pub fn forward_bfs(
             any_shortcut_found:   &mut any_shortcut_found,
             any_clean_found:      &mut any_clean_found,
             slot_has_clean:       &mut slot_has_clean,
+            publishable: &mut publishable,
+            exit_start_slots: slots.iter().enumerate().fold(0, |mask, (i, slot)| {
+                mask | if slot.start_pos == exit { 1u64 << i } else { 0 }
+            }),
+            concrete_exit_covered: board.get_flat(exit) == Tile::Box,
         };
 
         let mut limit_hit = false;
@@ -656,7 +731,8 @@ pub fn forward_bfs(
                     verbose,
                 );
             }
-            buckets[step] = bucket;
+            // This depth will never be used again; release its backing allocation.
+            drop(bucket);
 
             if let Some(limit) = state_limit {
                 if visited.len() > limit as usize {
@@ -694,6 +770,7 @@ pub fn forward_bfs(
         } else {
             BfsResult::SomeClean {
                 ruled_out: vec![],
+                publishable,
                 shortcuts: shortcut_qstate_set
                     .iter()
                     .cloned()
@@ -757,6 +834,7 @@ pub fn forward_bfs(
     BfsResult::SomeClean {
         ruled_out,
         shortcuts: final_shortcuts,
+        publishable,
     }
 }
 
@@ -840,8 +918,10 @@ pub fn process_bfs_node<C: BfsCallbacks>(
     allow_relaxed: bool,
     verbose: u8,
 ) {
-
-    
+    let distance = ctx.exit_distances[node.player as usize];
+    if distance == u8::MAX || distance as u32 > target_steps - node.steps {
+        return;
+    }
     if verbose > 0 && step < 10 && allow_relaxed{
     //if step < 2 {
         println!("Processing node at step {} with player at ({}, {}), qstate {:?}, box_state {:?}, fingerprint {:016x}, qstate len {}",
@@ -869,42 +949,33 @@ pub fn process_bfs_node<C: BfsCallbacks>(
         ctx.box_occupancy &= !(1u128 << orig);
     }
     for &(_, dest) in node.box_state.moved.iter() {
-        ctx.box_occupancy |= 1u128 << dest;
+        if dest != FREE_SLOT as FlatIdx {
+            ctx.box_occupancy |= 1u128 << dest;
+        }
     }
     
 
     // Compute pushable: for each direction, a bitmask of tiles that can be pushed in that direction.
     ctx.pushable = [0; 4];
-    for &dir in Dir::all().iter() {
-        let dir_idx = dir.idx();
-        // Check concrete boxes: iterate through set bits in box_occupancy
-        {
-            let mut remaining = ctx.box_occupancy;
-            while remaining != 0 {
-                let cur = remaining.trailing_zeros() as usize as FlatIdx;
-                let mut orig = cur;
-                //check if any moved box maps to orig and if so, use the original position for push mask checking
-                for &(moved_from, moved_to) in node.box_state.moved.iter() {
-                    if moved_to == orig {
-                        orig = moved_from;
-                        break;
-                    }
-                }
-                remaining &= remaining - 1; // Clear the lowest set bit
-                let box_mask = board.get_box_push_mask(orig);
-                if (box_mask & dir.mask()) > 0 {
-                    ctx.pushable[dir_idx] |= 1u128 << cur;
-                }
-                
-            }
+    let mut remaining = ctx.box_occupancy;
+    while remaining != 0 {
+        let cur = remaining.trailing_zeros() as FlatIdx;
+        remaining &= remaining - 1;
+        let orig = node.box_state.moved.iter()
+            .find(|&&(_, dest)| dest == cur).map_or(cur, |&(orig, _)| orig);
+        let mask = board.get_box_push_mask(orig);
+        for dir in Dir::all() {
+            if mask & dir.mask() != 0 { ctx.pushable[dir.idx()] |= 1u128 << cur; }
         }
-        // Check QB slots
-        let valid_mask = node.qstate.valid_mask();
-        for (i, slot) in slots.iter().enumerate() {
-            if (valid_mask >> i) & 1 != 0 && slot.allows(dir) {
-                let pos = node.qstate.get(i);
-                ctx.pushable[dir_idx] |= 1u128 << pos;
-            }
+    }
+    let mut valid = node.qstate.valid_mask();
+    while valid != 0 {
+        let i = valid.trailing_zeros() as usize;
+        valid &= valid - 1;
+        let pos = node.qstate.get(i);
+        if pos == FREE_SLOT as FlatIdx { continue; }
+        for dir in Dir::all() {
+            if slots[i].allows(dir) { ctx.pushable[dir.idx()] |= 1u128 << pos; }
         }
     }
 
@@ -933,22 +1004,20 @@ pub fn process_bfs_node<C: BfsCallbacks>(
             }
             temp &= !(1 << idx);
         }
-        if all_at_pos {
+        if all_at_pos && pos != FREE_SLOT as FlatIdx {
             ctx.covered_mask |= 1u128 << pos;
         }
     }
 
-    let (px, py) = board.coords(node.player);
-    let (ex, ey) = board.coords(exit);
-
-    // Manhattan lower-bound pruning.
-    let dist = (px as i32 - ex as i32).unsigned_abs() as u32
-        + (py as i32 - ey as i32).unsigned_abs() as u32;
-    if dist > target_steps - node.steps {
-        return;
+    if !allow_relaxed && node.player != exit {
+        let remaining = target_steps - node.steps;
+        match crate::bfsrelaxed::deletion_flood(ctx, node.player, exit, board.width, remaining, false).0 {
+            RelaxedResult::Deadlock => return,
+            RelaxedResult::AtLeast(d) | RelaxedResult::Exact(d) if d > remaining => return,
+            _ => {}
+        }
     }
 
-    
     if visited.len() % 1000000 == 0 {
         println!("Visited {} nodes at step {}/{}", visited.len(), step, target_steps);
     }
@@ -1028,7 +1097,7 @@ pub fn process_bfs_node<C: BfsCallbacks>(
                 //println!("Deadlock!");
                 return;
             }
-            RelaxedResult::AtLeast(lower_bound) if lower_bound > steps_remaining => {
+            RelaxedResult::AtLeast(lower_bound) | RelaxedResult::Exact(lower_bound) if lower_bound > steps_remaining => {
                 //println!("Too high lower bound!");
                 return
             },
@@ -1038,12 +1107,6 @@ pub fn process_bfs_node<C: BfsCallbacks>(
         }
     }
 
-    // Snapshot shortcut constraints as a plain slice for expand_node_children.
-    // We need an immutable view at this point; ForwardBfsCallbacks wraps a &mut Vec
-    // so we can't hold both at once without an intermediate borrow.
-    let shortcuts_snapshot: Vec<ShortcutConstraints> =
-        callbacks.shortcut_constraints().to_vec();
-
     expand_node_children(
         &node,
         fp,
@@ -1052,7 +1115,7 @@ pub fn process_bfs_node<C: BfsCallbacks>(
         board,
         slots,
         num_qbs,
-        &shortcuts_snapshot,
+        callbacks.shortcut_constraints(),
         buckets,
         pool,
         ctx,
@@ -1075,10 +1138,11 @@ pub fn expand_node_children(
     ctx: &mut SearchContext,
     visited: &mut dyn VisitedTracker,
 ) {
+    #[cfg(feature = "profile-search")]
+    let _timer = crate::search_profile::Timer::start(4);
     let mut dists = [u8::MAX; MAX_TILES];
     let mut queue = [0u16; MAX_TILES];
     let (mut head, mut tail) = (0, 0);
-    let (ex, ey) = board.coords(exit);
 
     let solid_mask = ctx.static_walls | ctx.box_occupancy;
 
@@ -1091,16 +1155,19 @@ pub fn expand_node_children(
         head += 1;
         let d = dists[curr as usize];
         let steps_at_curr = node.steps + d as u32;
+        let distance = ctx.exit_distances[curr as usize];
+        if distance == u8::MAX || steps_at_curr + distance as u32 > target_steps {
+            continue;
+        }
 
         if curr == exit {
             if steps_at_curr <= target_steps {
                 let mut exit_node = node.clone();
                 exit_node.player = exit;
                 exit_node.steps = steps_at_curr;
-                let child_fp = node_fingerprint(&exit_node);
-                //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-                visited.record_parent(child_fp, parent_fp, steps_at_curr);
-                buckets[steps_at_curr as usize].push(exit_node);
+                if visited.record_parent(&exit_node, parent_fp, slots) {
+                    buckets[steps_at_curr as usize].push(exit_node);
+                }
             }
             continue;
         }
@@ -1124,10 +1191,8 @@ pub fn expand_node_children(
                         tail += 1;
                     } else if steps_at_curr + 1 <= target_steps {
                         let new_steps = steps_at_curr + 1;
-                        let (nx, ny) = board.coords(next);
-                        let dist_to_exit = (nx as i32 - ex as i32).unsigned_abs() as u32
-                            + (ny as i32 - ey as i32).unsigned_abs() as u32;
-                        if dist_to_exit <= target_steps - new_steps {
+                        let dist_to_exit = ctx.exit_distances[next as usize];
+                        if dist_to_exit != u8::MAX && dist_to_exit as u32 <= target_steps - new_steps {
                             try_push(
                                 board, slots, node, parent_fp, curr, next, dir, new_steps, exit,
                                 num_qbs, shortcuts, buckets, pool, target_steps, ctx, visited,
@@ -1433,10 +1498,12 @@ fn simulate_step(
 fn try_prune_by_imputation(
     node: &BfsNode,
     visited: &dyn VisitedTracker,
-    board: &QuantumBoard,
+    _board: &QuantumBoard,
     slots: &[StartSlot],
     verbose: u8,
 ) -> bool {
+    #[cfg(feature = "profile-search")]
+    let _timer = crate::search_profile::Timer::start(0);
     // Identify invalid slots and their possible "valid" positions according to the board.
     if verbose > 1 {
         println!(
@@ -1444,45 +1511,7 @@ fn try_prune_by_imputation(
             node.qstate.cur, node.box_state.moved
         );
     }
-    let mut possible = SmallVec::<[(usize, FlatIdx); 16]>::new();
-    for i in 0..slots.len() {
-        if !node.qstate.is_valid(i) {
-            let qb = &board.quantum_blocks[slots[i].qb_id as usize];
-            if verbose > 1 {
-                println!(
-                    "Slot {} (QB {}, start {}) is invalid at position {}, effective tile {:?}",
-                    i,
-                    slots[i].qb_id,
-                    slots[i].start_pos,
-                    node.qstate.get(i),
-                    effective_tile(slots[i].start_pos, board, &node.box_state)
-                );
-            }
-            //generate list of current positions that the QB can occupy based on which slots of the
-            //qstate are from the same QB and valid, and the effective tile at those positions.
-            for j in 0..slots.len() {
-                if i == j {
-                    continue;
-                }
-                if slots[i].qb_id == slots[j].qb_id && node.qstate.is_valid(j) {
-                    let pos_j = node.qstate.get(j);
-                    possible.push((i, pos_j));
-                    if verbose > 1 {
-                        println!("  Slot {} (QB {}, start {}) is valid at position {}, effective tile {:?}",
-                            j, slots[j].qb_id, slots[j].start_pos, pos_j,
-                            effective_tile(pos_j, board, &node.box_state));
-                    }
-                }
-            }
-            //additionally, consider the start slot imputation as a possibility
-            possible.push((i, slots[i].start_pos));
-            if verbose > 1 {
-                println!("  Start slot imputation for slot {} (QB {}, start {}) at position {}, effective tile {:?}",
-                    i, slots[i].qb_id, slots[i].start_pos, slots[i].start_pos,
-                    effective_tile(slots[i].start_pos, board, &node.box_state));
-            }
-        }
-    }
+    let possible = crate::qstate::imputation_candidates(&node.qstate, slots);
 
     if possible.is_empty() {
         return false;
@@ -1501,7 +1530,7 @@ fn try_prune_by_imputation(
 
     // 2-slot imputation: Try re-validating two slots simultaneously.
     // We bound this to avoid a performance cliff on states with many invalidations.
-    if possible.len() >= 2 && possible.len() <= 12 {
+    if possible.len() >= 2 && possible.len() <= 6 {
         for a in 0..possible.len() {
             let (i, pos_i) = possible[a];
             test_qs.set(i, pos_i);
@@ -1696,10 +1725,9 @@ fn handle_player_move_to_quantum_or_floor(
     ) {
         // Pre-filter child before pushing to bucket
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
-            let child_fp = node_fingerprint(&child);
-            //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-            visited.record_parent(child_fp, parent_fp, new_steps);
-            buckets[new_steps as usize].push(child);
+            if visited.record_parent(&child, parent_fp, slots) {
+                buckets[new_steps as usize].push(child);
+            }
         }
     }
 }
@@ -1768,35 +1796,27 @@ fn handle_player_move_to_box(
     ) {
         // Pre-filter child with Manhattan check before pushing to bucket
         if should_push_child_to_bucket(board, &child, target_steps, exit, slots, ctx) {
-            let child_fp = node_fingerprint(&child);
-            //println!("Recording parent with child_fp {:016x} and parent_fp {:016x}", child_fp, parent_fp);
-            visited.record_parent(child_fp, parent_fp, new_steps);
-            buckets[new_steps as usize].push(child);
+            if visited.record_parent(&child, parent_fp, slots) {
+                buckets[new_steps as usize].push(child);
+            }
         }
     }
 }
 
-/// Pre-filter check: Apply Manhattan distance check to a child node before pushing to bucket.
+/// Check the fixed-wall distance before adding a child to the frontier.
 /// Returns true if the child should be pushed, false if it fails the check.
 #[inline(never)]
 fn should_push_child_to_bucket(
-    board: &QuantumBoard,
+    _board: &QuantumBoard,
     child: &BfsNode,
     target_steps: u32,
-    exit: FlatIdx,
-    slots: &[StartSlot],
+    _exit: FlatIdx,
+    _slots: &[StartSlot],
     ctx: &mut SearchContext,
 ) -> bool {
     let steps_remaining = target_steps.saturating_sub(child.steps);
-    //compute Manhattan distance to exit
-    let (px, py) = board.coords(child.player);
-    let (ex, ey) = board.coords(exit);
-    let dist = (px as i32 - ex as i32).unsigned_abs() as u32
-        + (py as i32 - ey as i32).unsigned_abs() as u32;
-        if dist > steps_remaining {
-            return false; // Prune by Manhattan distance
-        }
-    return true;
+    let dist = ctx.exit_distances[child.player as usize];
+    dist != u8::MAX && dist as u32 <= steps_remaining
 }
 
 /// Attempt to construct a child node. Refreshes the witness against the new

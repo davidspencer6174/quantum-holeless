@@ -1,0 +1,14 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\examples\\forward_bench.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/tests/fixtures/6x5-slow49.txt",
+    "3",
+    "0"
+  ],
+  "elapsed_seconds": 1.002,
+  "peak_working_set_mib": 9.91,
+  "sampled_peak_private_mib": 8.12,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\wall-distance-slow49-20261016-020122-580"
+}

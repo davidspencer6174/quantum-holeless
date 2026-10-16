@@ -154,6 +154,10 @@ impl QState {
 
     #[inline]
     pub fn set(&mut self, i: usize, p: FlatIdx) {
+        if p == INVALID {
+            self.invalidate(i);
+            return;
+        }
         self.cur[i] = p as u8;
         self.valid_mask |= 1 << i;
     }
@@ -252,6 +256,9 @@ pub fn assignment_valid_in(a: &Assignment, qstate: &QState) -> bool {
         if pos == INVALID {
             return false;
         }
+        if pos == FREE_SLOT as FlatIdx {
+            continue;
+        }
         let bit = 1u128 << pos;
         if (seen_mask & bit) != 0 {
             return false;
@@ -269,7 +276,8 @@ pub fn assignment_covered(a: &Assignment, shortcuts: &[ShortcutConstraints]) -> 
     if a.is_empty() {
         return false;
     }
-    shortcuts.iter().any(|s| s.covers_assignment(a.iter().fold(0u64, |mask, &slot_i| mask | (1 << slot_i))))
+    let mask = a.iter().fold(0u64, |mask, &slot_i| mask | (1 << slot_i));
+    shortcuts.iter().any(|s| s.covers_assignment(mask))
 }
 
 fn qb_order_by_choices(
@@ -287,6 +295,27 @@ fn qb_order_by_choices(
     Some(order)
 }
 
+/// Unique positions worth restoring for each invalid slot during dominance checks.
+pub(crate) fn imputation_candidates(qstate: &QState, slots: &[StartSlot]) -> SmallVec<[(usize, FlatIdx); 16]> {
+    let mut positions = [0u128; 16];
+    for (i, slot) in slots.iter().enumerate() {
+        if qstate.is_valid(i) {
+            positions[slot.qb_id as usize] |= 1u128 << qstate.get(i);
+        }
+    }
+    let mut possible = SmallVec::new();
+    for (i, slot) in slots.iter().enumerate() {
+        if qstate.is_valid(i) { continue; }
+        let mut candidates = positions[slot.qb_id as usize] | (1u128 << slot.start_pos);
+        while candidates != 0 {
+            let pos = candidates.trailing_zeros() as FlatIdx;
+            candidates &= candidates - 1;
+            possible.push((i, pos));
+        }
+    }
+    possible
+}
+
 /// Find a valid assignment of `qstate` that is NOT covered by any shortcut constraints.
 pub fn find_uncovered_witness(
     qstate: &QState,
@@ -294,6 +323,8 @@ pub fn find_uncovered_witness(
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
 ) -> Option<Assignment> {
+    #[cfg(feature = "profile-search")]
+    let _timer = crate::search_profile::Timer::start(2);
     if num_qbs == 0 {
         return if shortcuts.is_empty() { Some(SmallVec::new()) } else { None };
     }
@@ -551,6 +582,25 @@ pub fn slot_mask_at(qs: &QState, cell: FlatIdx) -> u64 {
 mod tests {
     use super::*;
     use smallvec::smallvec;
+
+    #[test]
+    fn setting_invalid_updates_both_representations() {
+        let (slots, mut state) = build_simple_slots();
+        state.set(0, INVALID);
+        assert!(!state.is_valid(0));
+        assert_eq!(state.valid_mask() & 1, 0);
+        state.set(0, slots[0].start_pos);
+        assert!(state.is_valid(0));
+        assert_eq!(state.valid_mask() & 1, 1);
+    }
+
+    #[test]
+    fn deleted_qbs_do_not_collide_at_the_sentinel() {
+        let (_, mut state) = build_simple_slots();
+        state.set(0, FREE_SLOT as FlatIdx);
+        state.set(2, FREE_SLOT as FlatIdx);
+        assert!(assignment_valid_in(&smallvec![0, 2], &state));
+    }
 
     fn build_simple_slots() -> (Vec<StartSlot>, QState) {
         let slots = vec![

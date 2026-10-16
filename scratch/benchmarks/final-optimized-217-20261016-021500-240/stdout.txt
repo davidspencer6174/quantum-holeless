@@ -1,0 +1,6 @@
+SomeClean ruled_out=[(3, 11), (3, 12), (3, 13), (3, 14)]
+SomeClean ruled_out=[(3, 11), (3, 12), (3, 13), (3, 14)]
+SomeClean ruled_out=[(3, 11), (3, 12), (3, 13), (3, 14)]
+SomeClean ruled_out=[(3, 11), (3, 12), (3, 13), (3, 14)]
+SomeClean ruled_out=[(3, 11), (3, 12), (3, 13), (3, 14)]
+median_ms=86.342 samples_ms=[84.9476, 85.1654, 86.3424, 86.6058, 90.3475]

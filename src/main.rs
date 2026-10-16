@@ -173,12 +173,16 @@ fn main() {
         BfsResult::SomeClean {
             ruled_out,
             shortcuts: _,
+            publishable,
         } => {
             println!("Result: SOLUTION AT EXACT STEP COUNT");
             println!(
                 "  The player reaches the exit in exactly {} steps",
                 parsed.target_steps
             );
+            if !publishable {
+                println!("  Intermediate search state only: no clean assignment starts with the exit uncovered.");
+            }
             //display ruled out starts
             if !ruled_out.is_empty() {
                 println!(

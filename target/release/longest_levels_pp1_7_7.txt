@@ -1,0 +1,396 @@
+=== Longest path so far with depth = 1 (exit 1,1) ===
+3111111
+4111111
+1111111
+1111111
+1111111
+1111111
+1111111
+
+=== Longest path so far with depth = 2 (exit 1,1) ===
+3111111
+0111111
+4111111
+1111111
+1111111
+1111111
+1111111
+
+=== Longest path so far with depth = 3 (exit 1,1) ===
+3111111
+0111111
+0111111
+4111111
+1111111
+1111111
+1111111
+
+=== Longest path so far with depth = 4 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+4111111
+1111111
+1111111
+
+=== Longest path so far with depth = 5 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111111
+4111111
+1111111
+
+=== Longest path so far with depth = 6 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111111
+0111111
+4111111
+
+=== Longest path so far with depth = 7 (exit 1,1) ===
+=== Longest path so far with depth = 8 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111111
+0041111
+1111111
+3111111
+0111111
+0111111
+0111111
+0a11111
+0A11111
+bB41111
+
+=== Longest path so far with depth = 9 (exit 1,1) ===
+
+=== Longest path so far with depth = 13 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111111
+0141111
+0001111
+=== Longest path so far with depth = 10 (exit 1,1) ===
+=== Longest path so far with depth = 12 (exit 1,1) ===
+=== Longest path so far with depth = 11 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111111
+0111114
+0000000
+
+3111111
+0111111
+0111111
+0111111
+0111111
+0114111
+0000111
+3111111
+0111111
+0111111
+0111111
+0111111
+0111141
+0000001
+3111111
+0111111
+0111111
+0111111
+0111111
+0111411
+0000011
+
+
+
+
+=== Longest path so far with depth = 14 (exit 1,1) ===
+=== Longest path so far with depth = 15 (exit 1,1) ===
+3111111
+0111111
+0111111
+0111111
+0111114
+0111110
+0000000
+3111111
+0111411
+0111011
+0111011
+0111011
+0111011
+0000011
+
+
+=== Longest path so far with depth = 16 (exit 1,1) ===
+314Cc11
+0110111
+0110111
+0110111
+0a10111
+0A10111
+bBB0111
+
+=== Longest path so far with depth = 17 (exit 1,1) ===
+3111141
+0111101
+0111101
+0111101
+0111101
+0111101
+0000001
+
+=== Longest path so far with depth = 18 (exit 1,1) ===
+314CCc1
+0111011
+0111011
+0111011
+0a11011
+0A11011
+bBBB011
+
+=== Longest path so far with depth = 19 (exit 1,1) ===
+3111140
+0111110
+0111110
+0111110
+0111110
+0111110
+0000000
+
+=== Longest path so far with depth = 20 (exit 1,1) ===
+3aAA011
+0101011
+0101011
+0101011
+0101411
+0101111
+0001111
+
+=== Longest path so far with depth = 21 (exit 1,1) ===
+31aAA01
+0110101
+0110101
+0110101
+0110141
+0110111
+0000111
+
+=== Longest path so far with depth = 22 (exit 1,1) ===
+3110AAa
+0110101
+0110101
+0114101
+0111101
+0111101
+0000001
+
+=== Longest path so far with depth = 23 (exit 1,1) ===
+31aAA01
+0110101
+0110101
+0110101
+0100101
+0020101
+1020141
+
+=== Longest path so far with depth = 24 (exit 1,1) ===
+3111000
+0111010
+0111010
+0111010
+0111410
+0111110
+0000000
+
+=== Longest path so far with depth = 25 (exit 1,1) ===
+3aAA011
+0101011
+0101011
+0101011
+0101011
+0101014
+000bBB0
+
+=== Longest path so far with depth = 26 (exit 1,1) ===
+3aAA011
+0101011
+0101011
+0101011
+0101014
+0101010
+000bBB0
+
+=== Longest path so far with depth = 27 (exit 1,1) ===
+3111000
+0111010
+0111010
+0141010
+01BAAa0
+01b1110
+0000000
+
+=== Longest path so far with depth = 28 (exit 1,1) ===
+3aAA011
+0101011
+0101014
+0101010
+0101010
+0101010
+000bBB0
+
+=== Longest path so far with depth = 29 (exit 1,1) ===
+3111000
+0141010
+01B1010
+01B1010
+01BAAa0
+01b1110
+0000000
+
+=== Longest path so far with depth = 30 (exit 1,1) ===
+3aAA014
+0101010
+0101010
+0101010
+0101010
+0101010
+000bBB0
+
+=== Longest path so far with depth = 31 (exit 1,1) ===
+3110000
+011BAa0
+010B010
+0122210
+0cC4Dd0
+0111110
+0000000
+
+=== Longest path so far with depth = 32 (exit 1,1) ===
+3100000
+0bBC1A0
+010C0a0
+0122210
+0dDD410
+0111110
+0000000
+
+=== Longest path so far with depth = 33 (exit 1,1) ===
+3100000
+0bBC1A0
+010C0a0
+0122210
+0dD4Ee0
+0111110
+0000000
+
+=== Longest path so far with depth = 34 (exit 1,1) ===
+3aAA400
+0122022
+0102220
+0110200
+0111001
+0111101
+0000001
+
+=== Longest path so far with depth = 35 (exit 1,1) ===
+3aAA000
+0122422
+0102220
+0110200
+0111001
+0111101
+0000001
+
+=== Longest path so far with depth = 36 (exit 1,1) ===
+3110200
+0aAADD0
+012BB20
+0102CC0
+0110010
+0111010
+0000014
+
+=== Longest path so far with depth = 37 (exit 1,1) ===
+311b020
+011BAA0
+010B220
+0122410
+0cCCD10
+0111d00
+0000000
+
+=== Longest path so far with depth = 38 (exit 1,1) ===
+3102001
+0022020
+0102200
+0100220
+0101420
+0001020
+1101020
+
+=== Longest path so far with depth = 39 (exit 1,1) ===
+3000000
+0101202
+012AA00
+01001B1
+00200B0
+0021222
+1020040
+
+=== Longest path so far with depth = 40 (exit 1,1) ===
+3100000
+0102222
+0100100
+01010A0
+01422A0
+0020011
+1020111
+
+=== Longest path so far with depth = 41 (exit 1,1) ===
+311020b
+0102AAB
+002202B
+010220B
+010022B
+000142B
+1101000
+
+=== Longest path so far with depth = 42 (exit 1,1) ===
+3102011
+010CAAa
+0bBC100
+01dD010
+0111422
+0000200
+1110201
+
+=== Longest path so far with depth = 43 (exit 1,1) ===
+3100000
+0101100
+0cCC010
+0111422
+01022B0
+000AAB1
+11020b1
+
+=== Longest path so far with depth = 44 (exit 1,1) ===
+3110200
+0aAA220
+0122400
+0100110
+0020110
+0021110
+1020000
+

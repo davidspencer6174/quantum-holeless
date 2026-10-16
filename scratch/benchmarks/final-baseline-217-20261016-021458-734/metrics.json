@@ -1,0 +1,14 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\forward-round1.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/quantum_debug.txt",
+    "5",
+    "0"
+  ],
+  "elapsed_seconds": 0.595,
+  "peak_working_set_mib": 5.38,
+  "sampled_peak_private_mib": 1.48,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\final-baseline-217-20261016-021458-734"
+}

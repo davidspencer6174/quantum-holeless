@@ -1,0 +1,14 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\examples\\forward_bench.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/tests/fixtures/6x5-slow45.txt",
+    "1",
+    "0"
+  ],
+  "elapsed_seconds": 0.999,
+  "peak_working_set_mib": 12.2,
+  "sampled_peak_private_mib": 12.04,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\two-block-core-slow45-20261016-020645-500"
+}

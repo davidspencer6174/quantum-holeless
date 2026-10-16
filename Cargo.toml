@@ -3,6 +3,9 @@ name = "quantum"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+profile-search = []
+
 [[bin]]
 name = "quantum"
 path = "src/main.rs"

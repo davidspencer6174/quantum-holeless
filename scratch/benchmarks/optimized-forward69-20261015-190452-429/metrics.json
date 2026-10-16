@@ -1,0 +1,12 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\quantum.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/tests/fixtures/5x5-69.txt"
+  ],
+  "elapsed_seconds": 0.103,
+  "peak_working_set_mib": 2.52,
+  "sampled_peak_private_mib": 0.45,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\optimized-forward69-20261015-190452-429"
+}

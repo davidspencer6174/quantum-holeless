@@ -1,0 +1,14 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\target\\release\\examples\\forward_bench.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/tests/fixtures/6x5-slow49.txt",
+    "3",
+    "0"
+  ],
+  "elapsed_seconds": 0.924,
+  "peak_working_set_mib": 9.08,
+  "sampled_peak_private_mib": 5.29,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\imputation-slow49-20261016-020622-552"
+}

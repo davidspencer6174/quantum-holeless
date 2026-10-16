@@ -1,0 +1,473 @@
+Goal at (1, 1), starting backward DFS...
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3111
+4111
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 1! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3111
+0411
+1111
+1111
+
+Push masks:
+.... #### #### ####
+.... .... #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 2! Writing to longest_levels_4_4.txt
+>>> New record found at depth 3! Writing to longest_levels_4_4.txt
+>>> New record found at depth 4! Writing to longest_levels_4_4.txt
+>>> New record found at depth 5! Writing to longest_levels_4_4.txt
+>>> New record found at depth 6! Writing to longest_levels_4_4.txt
+>>> New record found at depth 7! Writing to longest_levels_4_4.txt
+>>> New record found at depth 8! Writing to longest_levels_4_4.txt
+>>> New record found at depth 9! Writing to longest_levels_4_4.txt
+>>> New record found at depth 10! Writing to longest_levels_4_4.txt
+>>> New record found at depth 11! Writing to longest_levels_4_4.txt
+>>> New record found at depth 12! Writing to longest_levels_4_4.txt
+>>> New record found at depth 13! Writing to longest_levels_4_4.txt
+>>> New record found at depth 14! Writing to longest_levels_4_4.txt
+>>> New record found at depth 15! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3111
+0111
+4111
+1111
+
+Push masks:
+.... #### #### ####
+.... #### #### ####
+.... #### #### ####
+#### #### #### ####
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3411
+1111
+1111
+1111
+
+Push masks:
+.... .... #### ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3011
+1411
+1111
+1111
+
+Push masks:
+.... .... #### ####
+#### .... #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+3041
+1111
+1111
+1111
+
+Push masks:
+.... .... .... ####
+#### #### #### ####
+#### #### #### ####
+#### #### #### ####
+=== BFS timing distribution (534 total calls) ===
+  < 1ms:           534  (100.0%)
+  1–10ms:            0  (0.0%)
+  10–100ms:          0  (0.0%)
+  100ms–1s:          0  (0.0%)
+  1s–10s:            0  (0.0%)
+  ≥ 10s:             0  (0.0%)
+Total time on AllShortcut results: 6.188 ms
+Total time on SomeClean results: 2.673 ms
+Total time on Indeterminate results: 0 ms
+=== Heuristic Analysis (0 Triggers) ===
+  No instances flagged by heuristic.
+Goal at (1, 2), starting backward DFS...
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+4111
+A111
+a111
+1111
+
+Push masks:
+.... #### #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 1! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+0411
+A111
+a111
+1111
+
+Push masks:
+.... .... #### ####
+.D.. #### #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 2! Writing to longest_levels_4_4.txt
+>>> New record found at depth 4! Writing to longest_levels_4_4.txt
+>>> New record found at depth 5! Writing to longest_levels_4_4.txt
+>>> New record found at depth 6! Writing to longest_levels_4_4.txt
+>>> New record found at depth 7! Writing to longest_levels_4_4.txt
+>>> New record found at depth 8! Writing to longest_levels_4_4.txt
+>>> New record found at depth 9! Writing to longest_levels_4_4.txt
+>>> New record found at depth 10! Writing to longest_levels_4_4.txt
+>>> New record found at depth 11! Writing to longest_levels_4_4.txt
+>>> New record found at depth 12! Writing to longest_levels_4_4.txt
+>>> New record found at depth 13! Writing to longest_levels_4_4.txt
+>>> New record found at depth 14! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+1111
+3411
+1111
+1111
+
+Push masks:
+#### #### #### ####
+.... .... #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+1411
+3A11
+1a11
+1111
+
+Push masks:
+#### .... #### ####
+.... .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 15! Writing to longest_levels_4_4.txt
+>>> New record found at depth 16! Writing to longest_levels_4_4.txt
+>>> New record found at depth 17! Writing to longest_levels_4_4.txt
+>>> New record found at depth 18! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+1111
+3041
+1111
+1111
+
+Push masks:
+#### #### #### ####
+.... .... .... ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+1a11
+3A11
+1411
+1111
+
+Push masks:
+#### #### #### ####
+.... U... #### ####
+#### .... #### ####
+#### #### #### ####
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+a111
+A111
+4111
+1111
+
+Push masks:
+#### #### #### ####
+U... #### #### ####
+.... #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+a111
+A111
+0411
+1111
+
+Push masks:
+#### #### #### ####
+U... #### #### ####
+.... .... #### ####
+#### #### #### ####
+>>> New record found at depth 19! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,2) ===
+Letters:
+a111
+A111
+A111
+4111
+
+Push masks:
+#### #### #### ####
+U... #### #### ####
+U... #### #### ####
+.... #### #### ####
+=== BFS timing distribution (1307 total calls) ===
+  < 1ms:          1307  (100.0%)
+  1–10ms:            0  (0.0%)
+  10–100ms:          0  (0.0%)
+  100ms–1s:          0  (0.0%)
+  1s–10s:            0  (0.0%)
+  ≥ 10s:             0  (0.0%)
+Total time on AllShortcut results: 17.227 ms
+Total time on SomeClean results: 18.14 ms
+Total time on Indeterminate results: 0 ms
+=== Heuristic Analysis (0 Triggers) ===
+  No instances flagged by heuristic.
+Goal at (2, 2), starting backward DFS...
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1411
+1A11
+1a11
+1111
+
+Push masks:
+#### .... #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 1! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+bB41
+1A11
+1a11
+1111
+
+Push masks:
+#### ..L. .... ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 2! Writing to longest_levels_4_4.txt
+>>> New record found at depth 4! Writing to longest_levels_4_4.txt
+>>> New record found at depth 5! Writing to longest_levels_4_4.txt
+>>> New record found at depth 6! Writing to longest_levels_4_4.txt
+>>> New record found at depth 7! Writing to longest_levels_4_4.txt
+>>> New record found at depth 8! Writing to longest_levels_4_4.txt
+>>> New record found at depth 9! Writing to longest_levels_4_4.txt
+>>> New record found at depth 10! Writing to longest_levels_4_4.txt
+>>> New record found at depth 11! Writing to longest_levels_4_4.txt
+>>> New record found at depth 12! Writing to longest_levels_4_4.txt
+>>> New record found at depth 13! Writing to longest_levels_4_4.txt
+>>> New record found at depth 14! Writing to longest_levels_4_4.txt
+>>> New record found at depth 15! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+4Bb1
+1A11
+1a11
+1111
+
+Push masks:
+.... ...R #### ####
+#### .D.. #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1111
+aA41
+1111
+1111
+
+Push masks:
+#### #### #### ####
+#### ..L. .... ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1141
+aAB1
+11b1
+1111
+
+Push masks:
+#### #### .... ####
+#### ..L. .D.. ####
+#### #### #### ####
+#### #### #### ####
+>>> New record found at depth 16! Writing to longest_levels_4_4.txt
+>>> New record found at depth 17! Writing to longest_levels_4_4.txt
+>>> New record found at depth 18! Writing to longest_levels_4_4.txt
+>>> New record found at depth 19! Writing to longest_levels_4_4.txt
+>>> New record found at depth 20! Writing to longest_levels_4_4.txt
+>>> New record found at depth 21! Writing to longest_levels_4_4.txt
+>>> New record found at depth 22! Writing to longest_levels_4_4.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1111
+aAA4
+1111
+1111
+
+Push masks:
+#### #### #### ####
+#### ..L. ..L. ....
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+11b1
+aAB1
+1141
+1111
+
+Push masks:
+#### #### #### ####
+#### ..L. U... ####
+#### #### .... ####
+#### #### #### ####
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1111
+4Aa1
+1111
+1111
+
+Push masks:
+#### #### #### ####
+.... ...R #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+4111
+BAa1
+b111
+1111
+
+Push masks:
+.... #### #### ####
+.D.. ...R #### ####
+#### #### #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+b111
+BAa1
+4111
+1111
+
+Push masks:
+#### #### #### ####
+U... ...R #### ####
+.... #### #### ####
+#### #### #### ####
+Visited 1000 unique boards so far, current depth 15, longest found 22, slowest BFS 0 ms
+Path reversed: RUULDLDDLUURLUR, seen length: 1000
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1a11
+1A11
+1411
+1111
+
+Push masks:
+#### #### #### ####
+#### U... #### ####
+#### .... #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1a11
+1A11
+bB41
+1111
+
+Push masks:
+#### #### #### ####
+#### U... #### ####
+#### ..L. .... ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1a11
+1A11
+4Bb1
+1111
+
+Push masks:
+#### #### #### ####
+#### U... #### ####
+.... ...R #### ####
+#### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 2,2) ===
+Letters:
+1a11
+1A11
+1A11
+1411
+
+Push masks:
+#### #### #### ####
+#### U... #### ####
+#### U... #### ####
+#### .... #### ####
+=== BFS timing distribution (2839 total calls) ===
+  < 1ms:          2839  (100.0%)
+  1–10ms:            0  (0.0%)
+  10–100ms:          0  (0.0%)
+  100ms–1s:          0  (0.0%)
+  1s–10s:            0  (0.0%)
+  ≥ 10s:             0  (0.0%)
+Total time on AllShortcut results: 29.886 ms
+Total time on SomeClean results: 40.936 ms
+Total time on Indeterminate results: 0 ms
+=== Heuristic Analysis (0 Triggers) ===
+  No instances flagged by heuristic.
+Total time taken: 207.1467ms

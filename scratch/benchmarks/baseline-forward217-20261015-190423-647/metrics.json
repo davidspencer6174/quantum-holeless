@@ -1,0 +1,12 @@
+{
+  "executable": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\quantum-baseline-20261015.exe",
+  "arguments": [
+    "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum/quantum_debug.txt"
+  ],
+  "elapsed_seconds": 0.781,
+  "peak_working_set_mib": 17.29,
+  "sampled_peak_private_mib": 16.91,
+  "timed_out": false,
+  "exit_code": 0,
+  "output_directory": "C:\\Users\\David\\Documents\\Miscellaniety\\pathology\\quantum_holeless_0531\\quantum\\scratch\\benchmarks\\baseline-forward217-20261015-190423-647"
+}

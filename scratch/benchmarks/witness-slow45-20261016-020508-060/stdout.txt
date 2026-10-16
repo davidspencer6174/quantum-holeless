@@ -1,0 +1,4 @@
+SomeClean ruled_out=[(3, 37), (4, 45)]
+SomeClean ruled_out=[(3, 37), (4, 45)]
+SomeClean ruled_out=[(3, 37), (4, 45)]
+median_ms=389.369 samples_ms=[385.9714, 389.3691, 395.48299999999995]

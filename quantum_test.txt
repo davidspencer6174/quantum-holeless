@@ -1,0 +1,8 @@
+exit 2,2
+steps 29
+010004
+2B2H22
+0BCH00
+AACE00
+0dDE10
+11fFF0

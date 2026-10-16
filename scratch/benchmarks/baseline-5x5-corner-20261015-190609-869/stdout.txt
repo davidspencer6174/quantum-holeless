@@ -1,0 +1,172 @@
+Goal at (1, 1), starting backward DFS...
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+31111
+41111
+11111
+11111
+11111
+
+Push masks:
+.... #### #### #### ####
+.... #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+>>> New record found at depth 1! Writing to longest_levels_5_5.txt
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+31111
+04111
+11111
+11111
+11111
+
+Push masks:
+.... #### #### #### ####
+.... .... #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+>>> New record found at depth 2! Writing to longest_levels_5_5.txt
+>>> New record found at depth 3! Writing to longest_levels_5_5.txt
+>>> New record found at depth 4! Writing to longest_levels_5_5.txt
+>>> New record found at depth 5! Writing to longest_levels_5_5.txt
+>>> New record found at depth 6! Writing to longest_levels_5_5.txt
+>>> New record found at depth 7! Writing to longest_levels_5_5.txt
+>>> New record found at depth 8! Writing to longest_levels_5_5.txt
+>>> New record found at depth 9! Writing to longest_levels_5_5.txt
+>>> New record found at depth 10! Writing to longest_levels_5_5.txt
+>>> New record found at depth 11! Writing to longest_levels_5_5.txt
+>>> New record found at depth 12! Writing to longest_levels_5_5.txt
+>>> New record found at depth 13! Writing to longest_levels_5_5.txt
+>>> New record found at depth 14! Writing to longest_levels_5_5.txt
+>>> New record found at depth 15! Writing to longest_levels_5_5.txt
+>>> New record found at depth 16! Writing to longest_levels_5_5.txt
+>>> New record found at depth 17! Writing to longest_levels_5_5.txt
+>>> New record found at depth 18! Writing to longest_levels_5_5.txt
+>>> New record found at depth 19! Writing to longest_levels_5_5.txt
+>>> New record found at depth 20! Writing to longest_levels_5_5.txt
+>>> New record found at depth 21! Writing to longest_levels_5_5.txt
+>>> New record found at depth 22! Writing to longest_levels_5_5.txt
+>>> New record found at depth 23! Writing to longest_levels_5_5.txt
+>>> New record found at depth 24! Writing to longest_levels_5_5.txt
+>>> New record found at depth 25! Writing to longest_levels_5_5.txt
+>>> New record found at depth 26! Writing to longest_levels_5_5.txt
+>>> New record found at depth 27! Writing to longest_levels_5_5.txt
+>>> New record found at depth 28! Writing to longest_levels_5_5.txt
+>>> New record found at depth 29! Writing to longest_levels_5_5.txt
+>>> New record found at depth 30! Writing to longest_levels_5_5.txt
+>>> New record found at depth 31! Writing to longest_levels_5_5.txt
+>>> New record found at depth 32! Writing to longest_levels_5_5.txt
+>>> New record found at depth 33! Writing to longest_levels_5_5.txt
+>>> New record found at depth 34! Writing to longest_levels_5_5.txt
+>>> New record found at depth 35! Writing to longest_levels_5_5.txt
+Visited 1000 unique boards so far, current depth 11, longest found 35, slowest BFS 0 ms
+Path reversed: ULLLUUURRDR, seen length: 1000
+Visited 2000 unique boards so far, current depth 19, longest found 35, slowest BFS 0 ms
+Path reversed: ULLUULURRDULLLDRDLU, seen length: 2000
+>>> New record found at depth 36! Writing to longest_levels_5_5.txt
+>>> New record found at depth 37! Writing to longest_levels_5_5.txt
+>>> New record found at depth 38! Writing to longest_levels_5_5.txt
+Visited 3000 unique boards so far, current depth 28, longest found 38, slowest BFS 0 ms
+Path reversed: ULULDLUURLDLUURRRDULLLDDRDDL, seen length: 3000
+Visited 4000 unique boards so far, current depth 15, longest found 38, slowest BFS 0 ms
+Path reversed: ULUULULLDDRRLDD, seen length: 4000
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+31111
+01111
+41111
+11111
+11111
+
+Push masks:
+.... #### #### #### ####
+.... #### #### #### ####
+.... #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+Visited 5000 unique boards so far, current depth 10, longest found 38, slowest BFS 0 ms
+Path reversed: UULLDLUULU, seen length: 5000
+Visited 6000 unique boards so far, current depth 13, longest found 38, slowest BFS 0 ms
+Path reversed: UULUULDLLDDRD, seen length: 6000
+Visited 7000 unique boards so far, current depth 14, longest found 38, slowest BFS 0 ms
+Path reversed: UUULLULLDRDDDR, seen length: 7000
+Found some-clean board at depth 1 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+34111
+11111
+11111
+11111
+11111
+
+Push masks:
+.... .... #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+30111
+14111
+11111
+11111
+11111
+
+Push masks:
+.... .... #### #### ####
+#### .... #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+Visited 8000 unique boards so far, current depth 17, longest found 38, slowest BFS 0 ms
+Path reversed: LULLULDDRLUUUURRR, seen length: 8000
+Visited 9000 unique boards so far, current depth 29, longest found 38, slowest BFS 0 ms
+Path reversed: LULURULLDDLUUURDRURRDULLLLDDD, seen length: 9000
+Visited 10000 unique boards so far, current depth 11, longest found 38, slowest BFS 0 ms
+Path reversed: LUULLDLUUUR, seen length: 10000
+Visited 11000 unique boards so far, current depth 24, longest found 38, slowest BFS 0 ms
+Path reversed: LUULURRDULLDLUURLLDDRLDR, seen length: 11000
+Visited 12000 unique boards so far, current depth 18, longest found 38, slowest BFS 0 ms
+Path reversed: LUUULURRDULLDLDDDL, seen length: 12000
+Found some-clean board at depth 2 via back-walk:
+=== Some-clean board (exit 1,1) ===
+Letters:
+30411
+11111
+11111
+11111
+11111
+
+Push masks:
+.... .... .... #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+#### #### #### #### ####
+Visited 13000 unique boards so far, current depth 21, longest found 38, slowest BFS 0 ms
+Path reversed: LLUULURRDURULLDLDLUDD, seen length: 13000
+Visited 14000 unique boards so far, current depth 17, longest found 38, slowest BFS 0 ms
+Path reversed: LLLULUURRURRDDLLR, seen length: 14000
+Visited 15000 unique boards so far, current depth 10, longest found 38, slowest BFS 0 ms
+Path reversed: LLLUUURURR, seen length: 15000
+=== BFS timing distribution (27890 total calls) ===
+  < 1ms:         27663  (99.2%)
+  1–10ms:          227  (0.8%)
+  10–100ms:          0  (0.0%)
+  100ms–1s:          0  (0.0%)
+  1s–10s:            0  (0.0%)
+  ≥ 10s:             0  (0.0%)
+Total time on AllShortcut results: 1767.86 ms
+Total time on SomeClean results: 1050.842 ms
+Total time on Indeterminate results: 0 ms
+=== Heuristic Analysis (0 Triggers) ===
+  No instances flagged by heuristic.
+Total time taken: 3.0404284s

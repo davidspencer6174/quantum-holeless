@@ -2,6 +2,7 @@
 
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHasher;
+use smallvec::SmallVec;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
@@ -24,25 +25,24 @@ fn board_fingerprint(board: &QuantumBoard) -> u64 {
     let total = (board.width * board.height) as usize;
 
     // 1. Map old IDs to canonical IDs based on row-major appearance order.
-    let mut old_to_canonical = FxHashMap::default();
-    let mut appearance_order = Vec::new();
+    let mut old_to_canonical = [u8::MAX; 256];
+    let mut appearance_order = SmallVec::<[QBlockId; 16]>::new();
     let mut next_canonical = 0u8;
 
-    for (idx, &tile) in board.tiles[..total].iter().enumerate() {
+    for &tile in &board.tiles[..total] {
         if let Tile::Quantum(old_id) = tile {
-            old_to_canonical.entry(old_id).or_insert_with(|| {
+            if old_to_canonical[old_id as usize] == u8::MAX {
                 appearance_order.push(old_id);
-                let can = next_canonical;
+                old_to_canonical[old_id as usize] = next_canonical;
                 next_canonical += 1;
-                can
-            });
+            }
         }
     }
 
     // 2. Hash tiles using canonical IDs.
     for &tile in &board.tiles[..total] {
         match tile {
-            Tile::Quantum(id) => Tile::Quantum(old_to_canonical[&id]).hash(&mut h),
+            Tile::Quantum(id) => Tile::Quantum(old_to_canonical[id as usize]).hash(&mut h),
             other => other.hash(&mut h),
         }
     }
@@ -50,7 +50,7 @@ fn board_fingerprint(board: &QuantumBoard) -> u64 {
     // 3. Hash QuantumBlock data in the stable appearance order.
     for &old_id in &appearance_order {
         let qb = &board.quantum_blocks[old_id as usize];
-        let mut cells: Vec<(FlatIdx, &FlatIdxSet)> = qb
+        let mut cells: SmallVec<[(FlatIdx, &FlatIdxSet); 8]> = qb
             .cells
             .iter()
             .map(|(&pos, starts)| (pos, starts))
@@ -649,17 +649,11 @@ fn backward_dfs_recursive(
             BfsResult::AllShortcut => {
                 return;
             }
-            BfsResult::SomeClean { .. } => {
+            BfsResult::SomeClean { publishable, .. } => {
                 let mut shared_guard = shared.lock().unwrap();
-                if depth > shared_guard.longest_found {
-                    let exit_tile = board.get_flat(exit);
-                    let trivially_covered = matches!(exit_tile, Tile::Box)
-                        || matches!(exit_tile, Tile::Quantum(qid)
-                            if board.quantum_blocks[qid as usize].num_positions() == 1);
-                    if !trivially_covered {
-                        shared_guard.longest_found = depth;
-                        should_write_record = true;
-                    }
+                if publishable && depth > shared_guard.longest_found {
+                    shared_guard.longest_found = depth;
+                    should_write_record = true;
                 }
             }
             BfsResult::Indeterminate { .. } => unreachable!("full forward_bfs returned Indeterminate"),
@@ -842,7 +836,8 @@ fn process_child(
     let p_idx = bboard.find_player();
     if board.get_flat(p_idx) == Tile::Wall && is_dead_end(&bboard, p_idx) {
         if !can_block_reach_dead_end(&bboard, p_idx, exit) {
-            if target_steps <= step_limit_to_print_clean {
+            if target_steps <= step_limit_to_print_clean
+                && matches!(bboard.get_flat(exit), Tile::Floor | Tile::Player) {
                 println!("Found some-clean board at depth {} via back-walk:", depth + 1);
                 print!("{}", format_board_header(&bboard, exit, "Some-clean board"));
                 print!("{}", format_board(&bboard, exit));
@@ -1056,8 +1051,9 @@ fn process_child(
         BfsResult::SomeClean {
             ruled_out,
             shortcuts: next_shortcuts,
+            publishable,
         } => {
-            if target_steps <= step_limit_to_print_clean {
+            if publishable && target_steps <= step_limit_to_print_clean {
                 println!("Found some-clean board at depth {}:", depth + 1);
                 print!("{}", format_board_header(&bboard, exit, "Some-clean board"));
                 print!("{}", format_board(&bboard, exit));
