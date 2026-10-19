@@ -35,24 +35,66 @@ use std::env;
 use std::fs;
 use std::process;
 
-use rayon::ThreadPoolBuilder;
-use quantum::backward::backward_dfs;
+use quantum::backward::{backward_dfs_with_options, BackwardSearchOptions};
 use quantum::bfs::{forward_bfs, BfsResult};
 use quantum::io::{format_board, format_board_header, parse_input};
 use quantum::types::Dir;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .expect("Failed to build Rayon thread pool");
+    let raw_args: Vec<String> = env::args().collect();
+    let usage = format!("Usage: {} <input_file>\n       {} <width> <height> [goal_x goal_y] [--threads N] [--split-depth N] [--log-dir DIR]\n       Search options: [--checkpoint DIR | --resume DIR] [--no-symmetry] [--no-extra-records]\n       Stop after active subtrees: quantum --stop CHECKPOINT_DIR",
+        raw_args[0], raw_args[0]);
+    if raw_args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{usage}\n\nSearch defaults: --threads 1 --split-depth 10 --log-dir logs; symmetry enabled.\nCheckpoints require an explicit exit. Resume may change worker count.\nCtrl+C also preserves completed subtrees; unfinished subtrees will restart.");
+        return;
+    }
+    if raw_args.get(1).is_some_and(|arg| arg == "--stop") {
+        if raw_args.len() != 3 || !std::path::Path::new(&raw_args[2]).join("checkpoint.bin").is_file() {
+            eprintln!("Specify an existing checkpoint directory: quantum --stop DIR"); process::exit(1);
+        }
+        fs::File::create(std::path::Path::new(&raw_args[2]).join("STOP")).unwrap_or_else(|error| {
+            eprintln!("Could not request stop: {error}"); process::exit(1);
+        });
+        println!("Stop requested. Active subtrees will finish and save before the search exits.");
+        return;
+    }
+    let mut args = vec![raw_args[0].clone()];
+    let mut options = BackwardSearchOptions::default();
+    let mut search_options_used = false;
+    let mut remaining = raw_args.into_iter().skip(1);
+    while let Some(arg) = remaining.next() {
+        match arg.as_str() {
+            "--no-symmetry" => { options.symmetry = false; search_options_used = true; }
+            "--no-extra-records" => { options.extra_records = false; search_options_used = true; }
+            "--threads" | "--split-depth" | "--log-dir" | "--checkpoint" | "--resume" => {
+                search_options_used = true;
+                let value = remaining.next().unwrap_or_else(|| {
+                    eprintln!("Missing value for {arg}.\n{usage}"); process::exit(1);
+                });
+                if arg == "--checkpoint" || arg == "--resume" {
+                    if options.checkpoint_dir.is_some() { eprintln!("Use only one of --checkpoint or --resume."); process::exit(1); }
+                    options.checkpoint_dir = Some(value.into());
+                    options.resume = arg == "--resume";
+                }
+                else if arg == "--log-dir" { options.log_dir = value.into(); }
+                else {
+                    let number = value.parse::<usize>().ok().filter(|&n| n > 0).unwrap_or_else(|| {
+                        eprintln!("{arg} requires a positive integer.\n{usage}"); process::exit(1);
+                    });
+                    if arg == "--threads" { options.threads = number; } else { options.split_depth = number; }
+                }
+            }
+            _ if arg.starts_with("--") => { eprintln!("Unknown option: {arg}\n{usage}"); process::exit(1); }
+            _ => args.push(arg),
+        }
+    }
 
     if args.len() != 2 && args.len() != 3 && args.len()  != 5 {
-        eprintln!(
-            "Usage: {} <input_file> or {} <inner_width> <inner_height> or {} <inner_width> <inner_height> <goal_x> <goal_y>",
-            args[0], args[0], args[0]
-        );
+        eprintln!("{usage}");
+        process::exit(1);
+    }
+    if options.checkpoint_dir.is_some() && args.len() != 5 {
+        eprintln!("Checkpoint searches require dimensions and an explicit exit: width height goal_x goal_y.");
         process::exit(1);
     }
 
@@ -77,7 +119,9 @@ fn main() {
                 process::exit(1);
             });
             println!("Goal at ({}, {}), starting backward DFS...", goal_x, goal_y);
-            backward_dfs(goal_x, goal_y, inner_width, inner_height);
+            backward_dfs_with_options(goal_x, goal_y, inner_width, inner_height, &options).unwrap_or_else(|error| {
+                eprintln!("Search failed: {error}"); process::exit(1);
+            });
             let elapsed_time = start_time.elapsed();
             println!("Total time taken: {:?}", elapsed_time);
             process::exit(0);
@@ -93,7 +137,9 @@ fn main() {
                 }
 
                 println!("Goal at ({}, {}), starting backward DFS...", goal_x, goal_y);
-                backward_dfs(goal_x, goal_y, inner_width, inner_height);
+                backward_dfs_with_options(goal_x, goal_y, inner_width, inner_height, &options).unwrap_or_else(|error| {
+                    eprintln!("Search failed: {error}"); process::exit(1);
+                });
             }
         }
 
@@ -102,6 +148,10 @@ fn main() {
         process::exit(0);
     }
 
+    if search_options_used {
+        eprintln!("Search options apply to backward searches with board dimensions.\n{usage}");
+        process::exit(1);
+    }
     let path = &args[1];
     let content = fs::read_to_string(path).unwrap_or_else(|e| {
         eprintln!("Error reading '{}': {}", path, e);

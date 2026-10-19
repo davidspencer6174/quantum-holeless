@@ -1,0 +1,12 @@
+[package]
+name = "frontier-estimate"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+shortcut-reuse = []
+
+[dependencies]
+quantum = { path = "../.." }
+smallvec = "1"
+rustc-hash = "1"

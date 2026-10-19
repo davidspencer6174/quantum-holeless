@@ -27,14 +27,30 @@ while (-not $process.HasExited) {
 }
 $process.WaitForExit()
 $watch.Stop()
+$cpuSeconds = try { [Math]::Round($process.TotalProcessorTime.TotalSeconds, 3) } catch { $null }
+$stdout = Get-Content -LiteralPath (Join-Path $runDir 'stdout.txt') -Raw
+$records = [regex]::Matches($stdout, 'New record found at depth (\d+)') |
+    ForEach-Object { [int]$_.Groups[1].Value }
+$maxRecord = if ($records.Count) { ($records | Measure-Object -Maximum).Maximum } else { $null }
+$progress = [regex]::Matches($stdout, 'Visited (\d+) unique boards')
+$lastProgress = if ($progress.Count) { [int]$progress[$progress.Count - 1].Groups[1].Value } else { $null }
+$searchTime = [regex]::Match($stdout, 'Total time taken: ([\d.]+)(ms|s)')
+$searchSeconds = if ($searchTime.Success) {
+    $value = [double]::Parse($searchTime.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+    if ($searchTime.Groups[2].Value -eq 'ms') { $value / 1000 } else { $value }
+} else { $null }
 $result = [pscustomobject]@{
     executable = $exePath
     arguments = $SearchArgs
     elapsed_seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3)
+    cpu_seconds = $cpuSeconds
+    reported_search_seconds = $searchSeconds
     peak_working_set_mib = [Math]::Round($peakWorkingSet / 1MB, 2)
     sampled_peak_private_mib = [Math]::Round($peakPrivate / 1MB, 2)
     timed_out = $timedOut
     exit_code = $process.ExitCode
+    best_record_steps = $maxRecord
+    last_reported_board_count = $lastProgress
     output_directory = $runDir
 }
 $result | ConvertTo-Json | Tee-Object -FilePath (Join-Path $runDir 'metrics.json')

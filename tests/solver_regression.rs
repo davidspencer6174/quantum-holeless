@@ -4,6 +4,71 @@ use quantum::bfs::{forward_bfs, BfsResult};
 use quantum::board::QuantumBoard;
 use quantum::types::{Dir, FlatIdx, Tile};
 
+fn result_signature(result: BfsResult) -> (u8, Vec<(usize, FlatIdx)>, bool) {
+    match result {
+        BfsResult::Unreachable => (0, vec![], false),
+        BfsResult::AllShortcut => (1, vec![], false),
+        BfsResult::SomeClean { mut ruled_out, publishable, .. } => {
+            ruled_out.sort_unstable();
+            (2, ruled_out, publishable)
+        }
+        BfsResult::Indeterminate { .. } => panic!("expected a completed solve"),
+    }
+}
+
+#[test]
+fn inherited_paths_are_revalidated_after_masks_walls_and_slots_change() {
+    use quantum::bfs::forward_bfs_reusing;
+    use quantum::shortcut_paths::ShortcutPaths;
+    let parsed = quantum::io::parse_input("exit 3,1\nsteps 3\n4200\n").unwrap();
+    let mut paths = ShortcutPaths::default();
+    assert!(matches!(forward_bfs_reusing(&parsed.board, parsed.exit, 3, &[], &mut paths, 0, None),
+        BfsResult::AllShortcut));
+    paths.remember(vec![Dir::Right, Dir::Right]);
+
+    let mut quantum = parsed.board.clone();
+    quantum.set(2, 1, Tile::Floor);
+    quantum.add_quantum_block([quantum.flat(2, 1), quantum.flat(4, 1)], None);
+    let mut captured = ShortcutPaths::default();
+    assert!(matches!(forward_bfs_reusing(&quantum, parsed.exit, 3, &[], &mut captured, 0, None),
+        BfsResult::AllShortcut));
+    assert!(captured.paths().contains(&vec![Dir::Right, Dir::Right]));
+
+    let mut board = parsed.board.clone();
+    board.set_box_push_mask(board.flat(2, 1), Dir::Left.mask());
+    assert!(matches!(forward_bfs_reusing(&board, parsed.exit, 3, &[], &mut paths.clone(), 0, None),
+        BfsResult::Unreachable));
+    board.set(2, 1, Tile::Wall);
+    assert!(matches!(forward_bfs_reusing(&board, parsed.exit, 3, &[], &mut paths.clone(), 0, None),
+        BfsResult::Unreachable));
+    board.set(2, 1, Tile::Floor);
+    board.add_quantum_block([board.flat(2, 1), board.flat(4, 1)], Some(board.flat(2, 1)));
+    for target in [2, 3, 4] {
+        let expected = forward_bfs(&board, parsed.exit, target, &[], &[], false, 0, None);
+        let actual = forward_bfs_reusing(&board, parsed.exit, target, &[], &mut paths.clone(), 0, Some(0));
+        assert_eq!(result_signature(actual), result_signature(expected));
+    }
+}
+
+#[test]
+fn exhausted_child_budget_is_retried_to_completion() {
+    let parsed = quantum::io::parse_input(include_str!("fixtures/5x5-69.txt")).unwrap();
+    assert!(matches!(forward_bfs(&parsed.board, parsed.exit, 69, &[], &[], false, 0, Some(0)),
+        BfsResult::Indeterminate { .. }));
+    let expected = forward_bfs(&parsed.board, parsed.exit, 69, &[], &[], false, 0, None);
+    let actual = quantum::bfs::forward_bfs_complete(&parsed.board, parsed.exit, 69, &[], 0, Some(0));
+    match (expected, actual) {
+        (BfsResult::SomeClean { mut ruled_out, publishable, .. },
+         BfsResult::SomeClean { ruled_out: mut retried, publishable: retry_publishable, .. }) => {
+            ruled_out.sort_unstable();
+            retried.sort_unstable();
+            assert_eq!(ruled_out, retried);
+            assert_eq!(publishable, retry_publishable);
+        }
+        _ => panic!("budget retry changed the solve result"),
+    }
+}
+
 // Independent, single-step concrete BFS. It deliberately shares no transition,
 // pruning, fingerprint, or frontier code with the solver under test.
 fn reference_distance(board: &QuantumBoard, exit: FlatIdx) -> Option<u32> {
@@ -60,6 +125,45 @@ fn reference_distance(board: &QuantumBoard, exit: FlatIdx) -> Option<u32> {
         }
     }
     None
+}
+
+#[test]
+fn reported_five_by_seven_unreachable_boards_match_concrete_assignments() {
+    for fixture in [include_str!("fixtures/5x7-unreachable32.txt"),
+        include_str!("fixtures/5x7-unreachable77.txt")] {
+        let parsed = quantum::io::parse_input(fixture).unwrap();
+        let mut assignments = vec![(parsed.board.clone(), Vec::new())];
+        for qb in &parsed.board.quantum_blocks {
+            let mut next = Vec::new();
+            for (board, choices) in assignments {
+                for pos in qb.current_positions() {
+                    let mut concrete = board.clone();
+                    for p in qb.current_positions() { concrete.set_flat(p, Tile::Floor); }
+                    concrete.set_flat(pos, if qb.wall_pos == Some(pos) { Tile::Wall } else { Tile::Box });
+                    concrete.set_box_push_mask(pos, qb.box_push_mask_at(pos));
+                    let mut choices = choices.clone();
+                    choices.push(pos);
+                    next.push((concrete, choices));
+                }
+            }
+            assignments = next;
+        }
+        assert_eq!(assignments.len(), if parsed.target_steps == 32 { 48 } else { 20 });
+        for (mut board, choices) in assignments {
+            board.quantum_blocks.clear();
+            let distance = reference_distance(&board, parsed.exit);
+            assert_eq!(distance, Some(parsed.target_steps), "assignment {choices:?}");
+            assert!(matches!(forward_bfs(&board, parsed.exit, parsed.target_steps,
+                &[], &[], false, 0, None), BfsResult::SomeClean { .. }), "concrete {choices:?}");
+        }
+        match forward_bfs(&parsed.board, parsed.exit, parsed.target_steps,
+            &[], &[], false, 0, None) {
+            BfsResult::SomeClean { ruled_out, .. } => assert!(ruled_out.is_empty()),
+            _ => panic!("expected a clean solution at {} steps", parsed.target_steps),
+        }
+        assert!(matches!(forward_bfs(&parsed.board, parsed.exit, parsed.target_steps + 1,
+            &[], &[], false, 0, None), BfsResult::AllShortcut));
+    }
 }
 
 #[test]
@@ -136,6 +240,39 @@ fn known_quantum_records_remain_solvable_at_their_target() {
             "target={}",
             parsed.target_steps
         );
+        if parsed.target_steps == 69 {
+            assert!(matches!(result, BfsResult::SomeClean { publishable: true, .. }));
+        }
+    }
+}
+
+#[test]
+fn interchangeable_concrete_boxes_match_the_identity_preserving_reference() {
+    for walls in 0..16 {
+        for mask in 0..16 {
+            for mixed_masks in [false, true] {
+                let mut board = QuantumBoard::new(4, 3);
+                for y in 1..=3 { for x in 1..=4 { board.set(x, y, Tile::Floor); } }
+                board.set(1, 1, Tile::Player);
+                for (i, (x, y)) in [(2, 1), (3, 1), (4, 1), (1, 3)].into_iter().enumerate() {
+                    if walls & (1 << i) != 0 { board.set(x, y, Tile::Wall); }
+                }
+                for (i, (x, y)) in [(2, 2), (3, 2), (2, 3)].into_iter().enumerate() {
+                    board.set(x, y, Tile::Box);
+                    board.set_box_push_mask(board.flat(x, y), if mixed_masks && i == 2 { mask ^ 15 } else { mask });
+                }
+                let exit = board.flat(4, 3);
+                if let Some(distance) = reference_distance(&board, exit) {
+                    assert!(matches!(forward_bfs(&board, exit, distance, &[], &[], false, 0, None),
+                        BfsResult::SomeClean { .. }), "walls={walls} mask={mask} mixed={mixed_masks}");
+                    assert!(matches!(forward_bfs(&board, exit, distance + 1, &[], &[], false, 0, None),
+                        BfsResult::AllShortcut));
+                } else {
+                    assert!(matches!(forward_bfs(&board, exit, 32, &[], &[], false, 0, None),
+                        BfsResult::Unreachable));
+                }
+            }
+        }
     }
 }
 
@@ -247,7 +384,7 @@ fn record_requires_a_clean_assignment_with_initially_uncovered_exit() {
 
 #[test]
 fn queued_arrivals_allow_a_later_cheaper_path() {
-    use quantum::bfs::{node_fingerprint, BfsNode, SimpleVisited, VisitedTracker};
+    use quantum::bfs::{node_key, BfsNode, SimpleVisited, VisitedTracker};
     let mut visited = SimpleVisited::new();
     let mut child = BfsNode {
         player: 7,
@@ -256,19 +393,19 @@ fn queued_arrivals_allow_a_later_cheaper_path() {
         box_state: quantum::deadlock::BoxState::default(),
         witness_idx: None,
     };
-    let fp = node_fingerprint(&child);
-    assert!(visited.record_parent(&child, 1, &[]));
+    let fp = node_key(&child);
+    assert!(visited.record_parent(&child, &fp, &[]));
     assert!(
-        !visited.contains(fp),
+        !visited.contains(&fp),
         "queued is not settled for imputation"
     );
-    assert!(!visited.record_parent(&child, 1, &[]));
+    assert!(!visited.record_parent(&child, &fp, &[]));
     child.steps = 5;
-    assert!(visited.record_parent(&child, 2, &[]));
-    assert!(!visited.insert(fp, 9));
-    assert!(visited.insert(fp, 5));
-    assert!(visited.contains(fp));
-    assert!(!visited.record_parent(&child, 2, &[]));
+    assert!(visited.record_parent(&child, &fp, &[]));
+    assert!(!visited.insert(&fp, 9));
+    assert!(visited.insert(&fp, 5));
+    assert!(visited.contains(&fp));
+    assert!(!visited.record_parent(&child, &fp, &[]));
     assert_eq!(visited.len(), 1);
 }
 
@@ -323,6 +460,9 @@ fn slow_quantum_fixtures_preserve_results() {
 #[test]
 fn two_quantum_blocks_match_all_concrete_assignments() {
     use quantum::types::{PUSH_ALL, PUSH_DOWN, PUSH_LEFT, PUSH_RIGHT, PUSH_UP};
+    let mut inherited = quantum::shortcut_paths::ShortcutPaths::default();
+    // Carry hints across different geometry, masks, targets and assignment domains.
+    inherited.remember(vec![Dir::Right, Dir::Right, Dir::Down]);
     for walls in 0..16 {
         for variation in 0..4 {
             let mut base = QuantumBoard::new(4, 3);
@@ -377,6 +517,10 @@ fn two_quantum_blocks_match_all_concrete_assignments() {
                 }
             }
             for target in targets {
+                let expected = forward_bfs(&quantum, exit, target, &[], &[], false, 0, None);
+                let replayed = quantum::bfs::forward_bfs_reusing(
+                    &quantum, exit, target, &[], &mut inherited, 0, Some(0));
+                assert_eq!(result_signature(replayed), result_signature(expected));
                 let exact = distances.iter().flatten().any(|&d| d == Some(target));
                 let shortcut = distances
                     .iter()

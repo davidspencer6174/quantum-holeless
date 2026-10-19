@@ -5,13 +5,14 @@
 // easier state cannot reach the exit, the exact state is deadlocked.
 
 use rustc_hash::{FxHashSet, FxHashMap};
+use crate::search_log::println;
 
 use crate::bfs::{BfsCallbacks, BfsNode, SearchContext,
-                 VisitedTracker, process_bfs_node};
+                 VisitedTracker, StateKey, process_bfs_node};
 use crate::board::{QuantumBoard};
 use crate::deadlock::BoxState;
 use crate::qstate::{
-    Assignment, QState,
+    Assignment, AssignmentPool, QState,
     ShortcutConstraints, StartSlot, FREE_SLOT, INVALID, INVALID_SLOT,
 };
 use crate::types::{Dir, FlatIdx, QBlockId};
@@ -28,44 +29,47 @@ pub enum RelaxedResult {
 /// The key deliberately omits exit and board dimensions because this cache is
 /// scoped to a single forward solve, where those values are invariant.
 pub struct RelaxedCache {
-    results: FxHashMap<u64, RelaxedResult>,
+    results: FxHashMap<StateKey, RelaxedResult>,
+    #[cfg(feature = "relaxed-budget")]
+    work_budget: usize,
 }
 
 impl RelaxedCache {
     pub fn new() -> Self {
         Self {
             results: FxHashMap::default(),
+            #[cfg(feature = "relaxed-budget")]
+            work_budget: 1024,
         }
     }
 
-    pub fn get(&self, fingerprint: u64) -> Option<RelaxedResult> {
-        self.results.get(&fingerprint).cloned()
+    pub fn get(&self, key: &StateKey) -> Option<RelaxedResult> {
+        self.results.get(key).cloned()
     }
 
-    pub fn insert(&mut self, fingerprint: u64, result: RelaxedResult){
-        if let Some(existing) = self.results.get(&fingerprint) {
+    pub fn insert(&mut self, key: &StateKey, result: RelaxedResult){
+        if let Some(existing) = self.results.get(key) {
             //if it's exact or deadlock, can't tighten
             //if it's a lower bound, should take the tighter lower bound
             match existing {
                 RelaxedResult::Exact(_) | RelaxedResult::Deadlock => {
-                    //assert_eq!(*existing, result, "Inconsistent cache entry for fingerprint {:x}: existing {:?}, new {:?}", fingerprint, existing, result);
                     return;
                 },
                 RelaxedResult::AtLeast(existing_bound) => {
                     if let RelaxedResult::AtLeast(new_bound) = result {
                         if new_bound > *existing_bound {
-                            self.results.insert(fingerprint, result);
+                            self.results.insert(key.clone(), result);
                         }
                         return;
                     }
                     if let RelaxedResult::Exact(_) = result {
-                        self.results.insert(fingerprint, result);
+                        self.results.insert(key.clone(), result);
                         return;
                     }
                 }
             }
         }        
-        self.results.insert(fingerprint, result);
+        self.results.insert(key.clone(), result);
     }
 
     pub fn len(&self) -> usize {
@@ -74,13 +78,13 @@ impl RelaxedCache {
 }
 
 pub struct VisitedWithParents {
-    nodes: FxHashMap<u64, VisitRecord>,
+    nodes: FxHashMap<StateKey, VisitRecord>,
     settled_count: usize,
 }
 
 struct VisitRecord {
     cost: u32,
-    parent: Option<u64>,
+    parent: Option<StateKey>,
     settled: bool,
 }
 
@@ -92,18 +96,22 @@ impl VisitedWithParents {
         }
     }
 
-    pub fn get_parent(&self, fp: u64) -> Option<u64> {
-        self.nodes.get(&fp).and_then(|record| record.parent)
+    pub fn get_parent(&self, key: &StateKey) -> Option<&StateKey> {
+        self.nodes.get(key).and_then(|record| record.parent.as_ref())
     }
 }
 
 impl VisitedTracker for VisitedWithParents {
-    fn contains(&self, fp: u64) -> bool {
-        self.nodes.get(&fp).map_or(false, |record| record.settled)
+    fn contains(&self, key: &StateKey) -> bool {
+        self.nodes.get(key).map_or(false, |record| record.settled)
     }
 
-    fn insert(&mut self, fp: u64, steps: u32) -> bool {
-        let record = self.nodes.entry(fp).or_insert(VisitRecord {
+    fn redundant(&self, key: &StateKey, steps: u32) -> bool {
+        self.nodes.get(key).is_some_and(|record| record.settled || record.cost <= steps)
+    }
+
+    fn insert(&mut self, key: &StateKey, steps: u32) -> bool {
+        let record = self.nodes.entry(key.clone()).or_insert(VisitRecord {
             cost: steps,
             parent: None,
             settled: false,
@@ -121,22 +129,21 @@ impl VisitedTracker for VisitedWithParents {
         self.settled_count
     }
 
-    fn record_parent(&mut self, child: &BfsNode, parent_fp: u64, slots: &[StartSlot]) -> bool {
+    fn record_parent_key(&mut self, child: &BfsNode, child_key: StateKey, parent_key: &StateKey) -> bool {
         let steps = child.steps;
-        let child_fp = fingerprint_relaxed(child.player, &child.qstate, slots, &child.box_state);
-        if self.nodes.get(&child_fp).map_or(false, |record| record.settled || record.cost <= steps) {
+        if self.nodes.get(&child_key).map_or(false, |record| record.settled || record.cost <= steps) {
             return false;
         }
-        self.nodes.entry(child_fp)
+        self.nodes.entry(child_key)
             .and_modify(|record| {
                 if !record.settled && steps < record.cost {
                     record.cost = steps;
-                    record.parent = Some(parent_fp);
+                    record.parent = Some(parent_key.clone());
                 }
             })
             .or_insert(VisitRecord {
                 cost: steps,
-                parent: Some(parent_fp),
+                parent: Some(parent_key.clone()),
                 settled: false,
             });
         true
@@ -212,11 +219,11 @@ pub fn qstate_to_relaxed_version(qstate: &QState, slots: &[StartSlot]) -> Vec<(u
 }
 
 #[inline(never)] // Mark this explicitely, as it's a known hotspot we want to measure
-pub fn fingerprint_relaxed(player: FlatIdx, qstate: &QState, slots: &[StartSlot], box_state: &BoxState) -> u64 {
+pub fn relaxed_key(player: FlatIdx, qstate: &QState, slots: &[StartSlot], box_state: &BoxState) -> StateKey {
     // Slots and static geometry are fixed for one forward solve. Preserve slot
     // identity: OR-ing masks at a position loses which moves remain compatible.
     debug_assert_eq!(qstate.len, slots.len());
-    crate::bfs::fingerprint_raw(player, qstate, box_state)
+    crate::bfs::state_key(player, qstate, box_state)
 }
 
 pub fn basic_flood_fill(
@@ -302,6 +309,12 @@ pub fn relaxed_solve(
 ) -> RelaxedResult {
     #[cfg(feature = "profile-search")]
     let _timer = crate::search_profile::Timer::start(3);
+    #[cfg(feature = "relaxed-budget")]
+    {
+        // Amortize core work over outer queries. A useful proof earns another
+        // attempt; cache lookups and the inexpensive deletion flood stay free.
+        ctx.relaxed_cache.work_budget = (ctx.relaxed_cache.work_budget + 4).min(16_384);
+    }
 
     //if player is already at the exit, return Exact(0)
     if player == exit {
@@ -387,6 +400,9 @@ pub fn relaxed_solve(
     // Keep the original concrete-box table fixed. Deleted boxes are represented
     // by FREE_SLOT in BoxState, just like boxes moved to another physical cell.
     new_root_node.box_state.moved.sort_unstable_by_key(|&(orig, _)| orig);
+    for &origins in &ctx.box_origin_groups {
+        new_root_node.box_state.canonicalize_group(origins);
+    }
 
     // ── Derive num_qbs and qb_masks from slots ────────────────────────────
     //
@@ -403,10 +419,9 @@ pub fn relaxed_solve(
     }
 
     let mut visited = VisitedWithParents::new();
-    //println!("Root fingerprint: {:x}", node_fingerprint(&new_root_node));
-    let root_fp = fingerprint_relaxed(player, &new_root_node.qstate, slots, &new_root_node.box_state);
+    let root_key = relaxed_key(player, &new_root_node.qstate, slots, &new_root_node.box_state);
     //println!("Size of visited: {}", visited.len());
-    let mut cached_result = ctx.relaxed_cache.get(root_fp);
+    let mut cached_result = ctx.relaxed_cache.get(&root_key);
     if cached_result.is_none(){
         cached_result = try_cache_by_imputation(&new_root_node, &mut ctx.relaxed_cache, board, slots, verbose);
         //if cached_result.is_some(){
@@ -432,7 +447,7 @@ pub fn relaxed_solve(
         //println!("Uncached");
     }
 
-    let mut assignment_pool: Vec<Assignment> = Vec::new();
+    let mut assignment_pool = AssignmentPool::default();
     let cap = target_steps as usize + 1;
     let mut buckets: Vec<Vec<BfsNode>> = vec![Vec::new(); cap];
 
@@ -467,27 +482,36 @@ pub fn relaxed_solve(
         }
         let mut bucket = std::mem::take(&mut buckets[step]);
         while let Some(node) = bucket.pop() {
-            let fp = fingerprint_relaxed(node.player, &node.qstate, slots, &node.box_state);
-            //println!("Processing node with qstate cur {:?}, box state {:?}, player position {:?}, current steps {}, fingerprint {:032x}",
-            //node.qstate.cur, node.box_state.moved, node.player, node.steps, fp);
-            if !visited.insert(fp, node.steps) {
+            if state_limit.is_some_and(|limit| visited.len() >= limit as usize) {
+                return RelaxedResult::AtLeast(exit_touch_steps);
+            }
+            #[cfg(feature = "relaxed-budget")]
+            if ctx.relaxed_cache.work_budget == 0 {
+                // An incomplete core search is not a deadlock or an exact
+                // distance. Keep only the independently proved flood bound.
+                return RelaxedResult::AtLeast(exit_touch_steps);
+            }
+            let key = relaxed_key(node.player, &node.qstate, slots, &node.box_state);
+            if !visited.insert(&key, node.steps) {
                 continue;
             }
+            #[cfg(feature = "relaxed-budget")]
+            { ctx.relaxed_cache.work_budget -= 1; }
             // Check for exit before expanding.
             if node.player == exit {
-                if !visited.contains(fp) {
-                    visited.insert(fp, node.steps);
+                if !visited.contains(&key) {
+                    visited.insert(&key, node.steps);
                 }
                 if best_steps.is_none() || node.steps < best_steps.unwrap() {
                     best_steps = Some(node.steps);
                     best_steps_leaf_set.clear();
-                    best_steps_leaf_set.insert(fp);
+                    best_steps_leaf_set.insert(key.clone());
                 } else if node.steps == best_steps.unwrap() {
-                    best_steps_leaf_set.insert(fp);
+                    best_steps_leaf_set.insert(key.clone());
                 }
                 break;
             }
-            let cached_result = ctx.relaxed_cache.get(fp);
+            let cached_result = ctx.relaxed_cache.get(&key);
             if let Some(cached_result) = cached_result {
                 match cached_result {
                     RelaxedResult::Deadlock => {
@@ -506,9 +530,9 @@ pub fn relaxed_solve(
                         if best_steps.is_none() || total_cost < best_steps.unwrap() {
                             best_steps = Some(total_cost);
                             best_steps_leaf_set.clear();
-                            best_steps_leaf_set.insert(fp);
+                            best_steps_leaf_set.insert(key.clone());
                         } else if total_cost == best_steps.unwrap() {
-                            best_steps_leaf_set.insert(fp);
+                            best_steps_leaf_set.insert(key.clone());
                         }
                         continue;
                     }
@@ -518,7 +542,7 @@ pub fn relaxed_solve(
 
             process_bfs_node(
                 node,
-                fp,
+                &key,
                 step as u32,
                 target_steps,
                 exit,
@@ -537,37 +561,30 @@ pub fn relaxed_solve(
         }
         drop(bucket);
 
-        if let Some(limit) = state_limit {
-            if visited.len() > limit as usize {
-                // State limit hit; conservatively report AtLeast(0) so the
-                // forward BFS doesn't prune on a potentially wrong answer.
-                println!("Hit state limit");
-                return RelaxedResult::AtLeast(0);
-            }
-        }
     }
 
     if best_steps.is_none() {
+        #[cfg(feature = "relaxed-budget")]
+        { ctx.relaxed_cache.work_budget = (ctx.relaxed_cache.work_budget + 1024).min(16_384); }
         // Exhausting the inclusive budget proves a strictly larger distance.
-        for (&fp, record) in &visited.nodes {
+        for (key, record) in &visited.nodes {
             if record.settled {
-                ctx.relaxed_cache.insert(fp, RelaxedResult::AtLeast(target_steps - record.cost + 1));
+                ctx.relaxed_cache.insert(key, RelaxedResult::AtLeast(target_steps - record.cost + 1));
             }
         }
         //println!("Returning AtLeast target_steps");
         return RelaxedResult::AtLeast(target_steps.saturating_add(1));
     } else{
-        for (&fp, record) in &visited.nodes {
+        for (key, record) in &visited.nodes {
             if record.settled {
-                ctx.relaxed_cache.insert(fp, RelaxedResult::AtLeast(best_steps.unwrap_or(0).saturating_sub(record.cost)));
+                ctx.relaxed_cache.insert(key, RelaxedResult::AtLeast(best_steps.unwrap_or(0).saturating_sub(record.cost)));
             }
         }
-        for fp in best_steps_leaf_set.iter() {
-            // Store the VALUE, not the reference. (Assuming *fp can be copied/cloned)
-            let mut cur = *fp; 
+        for key in best_steps_leaf_set.iter() {
+            let mut cur = key;
             
             loop {
-                let cost = visited.nodes[&cur].cost;
+                let cost = visited.nodes[cur].cost;
                 ctx.relaxed_cache.insert(
                     cur, 
                     RelaxedResult::Exact(best_steps.unwrap_or(0) - cost)
@@ -623,7 +640,7 @@ fn try_cache_by_imputation(
     // 1-slot imputation: Try re-validating one slot.
     for &(i, pos) in &possible {
         test_qs.set(i, pos); // Still need set() here for specific imputation
-        let result = cache.get(fingerprint_relaxed(node.player, &test_qs, slots, &node.box_state));
+        let result = cache.get(&relaxed_key(node.player, &test_qs, slots, &node.box_state));
         if result.is_some(){
             return result.map(imputed_bound);
         }
@@ -648,7 +665,7 @@ fn try_cache_by_imputation(
                     );
                 }
                 test_qs.set(j, pos_j);
-                let result = cache.get(fingerprint_relaxed(node.player, &test_qs, slots, &node.box_state));
+                let result = cache.get(&relaxed_key(node.player, &test_qs, slots, &node.box_state));
                 if result.is_some(){
                     return result.map(imputed_bound);
                 }
@@ -678,13 +695,14 @@ mod tests {
     #[test]
     fn cache_keeps_strongest_proven_bound() {
         let mut cache = RelaxedCache::new();
-        cache.insert(1, RelaxedResult::AtLeast(5));
-        cache.insert(1, RelaxedResult::AtLeast(9));
-        cache.insert(1, RelaxedResult::AtLeast(3));
-        assert_eq!(cache.get(1), Some(RelaxedResult::AtLeast(9)));
-        cache.insert(1, RelaxedResult::Exact(12));
-        cache.insert(1, RelaxedResult::AtLeast(10));
-        assert_eq!(cache.get(1), Some(RelaxedResult::Exact(12)));
+        let key = crate::bfs::state_key(1, &QState::new(&[]), &BoxState::default());
+        cache.insert(&key, RelaxedResult::AtLeast(5));
+        cache.insert(&key, RelaxedResult::AtLeast(9));
+        cache.insert(&key, RelaxedResult::AtLeast(3));
+        assert_eq!(cache.get(&key), Some(RelaxedResult::AtLeast(9)));
+        cache.insert(&key, RelaxedResult::Exact(12));
+        cache.insert(&key, RelaxedResult::AtLeast(10));
+        assert_eq!(cache.get(&key), Some(RelaxedResult::Exact(12)));
     }
 
     #[test]
@@ -710,14 +728,14 @@ mod tests {
         // Same OR-ed masks, but only the combined interpretation can push both ways.
         assert_eq!(qstate_to_relaxed_version(&split, &slots), qstate_to_relaxed_version(&combined, &slots));
         let boxes = BoxState::default();
-        assert_ne!(fingerprint_relaxed(9, &split, &slots, &boxes), fingerprint_relaxed(9, &combined, &slots, &boxes));
+        assert_ne!(relaxed_key(9, &split, &slots, &boxes), relaxed_key(9, &combined, &slots, &boxes));
         let mut absent = combined.clone();
         let mut impossible = combined.clone();
         for i in 0..slots.len() {
             absent.set(i, FREE_SLOT as FlatIdx);
             impossible.invalidate(i);
         }
-        assert_ne!(fingerprint_relaxed(9, &absent, &slots, &boxes), fingerprint_relaxed(9, &impossible, &slots, &boxes));
+        assert_ne!(relaxed_key(9, &absent, &slots, &boxes), relaxed_key(9, &impossible, &slots, &boxes));
     }
 
     #[test]
@@ -727,16 +745,18 @@ mod tests {
             player: 12, steps: 9, qstate: QState::new(&[]),
             box_state: BoxState::default(), witness_idx: None,
         };
-        let fp = fingerprint_relaxed(child.player, &child.qstate, &[], &child.box_state);
-        tracker.insert(1, 0);
-        tracker.record_parent(&child, 1, &[]);
-        tracker.insert(2, 2);
+        let key = relaxed_key(child.player, &child.qstate, &[], &child.box_state);
+        let first = crate::bfs::state_key(1, &QState::new(&[]), &BoxState::default());
+        let second = crate::bfs::state_key(2, &QState::new(&[]), &BoxState::default());
+        tracker.insert(&first, 0);
+        tracker.record_parent(&child, &first, &[]);
+        tracker.insert(&second, 2);
         child.steps = 5;
-        tracker.record_parent(&child, 2, &[]);
-        assert_eq!(tracker.get_parent(fp), Some(2));
-        assert!(!tracker.insert(fp, 9));
-        assert!(tracker.insert(fp, 5));
-        assert!(!tracker.insert(fp, 5));
+        tracker.record_parent(&child, &second, &[]);
+        assert_eq!(tracker.get_parent(&key), Some(&second));
+        assert!(!tracker.insert(&key, 9));
+        assert!(tracker.insert(&key, 5));
+        assert!(!tracker.insert(&key, 5));
         assert_eq!(tracker.len(), 3);
     }
 
@@ -759,8 +779,11 @@ mod tests {
         let mut ctx = SearchContext {
             q_occupancy: 0, box_occupancy: 0, covered_mask: 0,
             static_walls: 0, static_boxes: 0, static_inner_mask: 0,
+            box_origin_groups: BoxState::origin_groups(&board),
             pushable: [0; 4], relaxed_cache: RelaxedCache::new(),
             exit_distances: crate::bfs::wall_distances(&board, exit),
+            #[cfg(feature = "walking-dominance")]
+            walks: Default::default(),
         };
         for y in 1..=5 {
             for x in 1..=5 {
@@ -787,6 +810,9 @@ mod tests {
         let root = BfsNode { player: board.find_player(), steps: 0,
             qstate: QState::new(&[]), box_state: BoxState::default(), witness_idx: None };
         let original_boxes = ctx.static_boxes;
+        let limited = relaxed_solve(&board, &[], root.player, exit, 8, 0, Some(0), &root, &mut ctx);
+        assert!(matches!(limited, RelaxedResult::AtLeast(bound) if bound <= 8));
+        assert_eq!(ctx.relaxed_cache.len(), 0, "an interrupted core must not cache an exact answer");
         let result = relaxed_solve(&board, &[], root.player, exit, 8, 0, None, &root, &mut ctx);
         assert_eq!(result, RelaxedResult::AtLeast(9));
         assert!(ctx.relaxed_cache.len() > 0, "the core search must actually run");

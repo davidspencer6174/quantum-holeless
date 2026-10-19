@@ -70,8 +70,10 @@ pub fn parse_input(input: &str) -> Result<ParsedInput, String> {
             continue; // Skip blank lines
         }
         
-        // Detect if this line is a push mask row (contains spaces and #### patterns)
-        if trimmed.contains(' ') && (trimmed.contains("####") || trimmed.contains('.')) {
+        let columns = grid_rows.first().map_or(0, |row| row.len());
+        let is_mask_row = columns > 0 && trimmed.split_whitespace().count() == columns
+            && trimmed.split_whitespace().all(|mask| string_to_push_mask(mask).is_ok());
+        if is_mask_row {
             found_masks = true;
             mask_rows.push(trimmed);
         } else if found_masks {
@@ -494,6 +496,15 @@ exit 5,1
 steps 4
 40000
 ";
+
+    #[test]
+    fn parse_full_mask_rows_and_single_column_exports() {
+        let board = parse_input("exit 2,1\nsteps 1\n40\n22\n\n.... ....\nUDLR UDLR\n").unwrap().board;
+        assert_eq!(board.get_box_push_mask(board.flat(1, 2)), crate::types::PUSH_ALL);
+        assert_eq!(board.get_box_push_mask(board.flat(2, 2)), crate::types::PUSH_ALL);
+        let board = parse_input("exit 1,4\nsteps 3\n4\n2\n0\n0\n\n....\nUDLR\n....\n....\n").unwrap().board;
+        assert_eq!(board.get_box_push_mask(board.flat(1, 2)), crate::types::PUSH_ALL);
+    }
 
     #[test]
     fn parse_corridor() {

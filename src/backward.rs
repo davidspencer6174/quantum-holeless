@@ -6,14 +6,19 @@ use smallvec::SmallVec;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
 
 use crate::bfs::{forward_bfs, BfsResult};
 use crate::board::QuantumBoard;
 use crate::io::{format_board, format_board_header};
-use crate::qstate::Shortcut;
+use crate::progress::{print_progress, ProgressReporter, SearchProgress, REPORT_INTERVAL};
+use crate::shortcut_paths::ShortcutPaths;
 use crate::types::{fis_single, Dir, FlatIdx, FlatIdxSet, QBlockId, QuantumBlock, Tile};
 use std::fs::OpenOptions;
 use std::io::Write;
+use crate::search_log::{self, print, println, SearchLog};
+use crate::work_queue::WorkQueue;
 
 // ── Board fingerprint ─────────────────────────────────────────────────────────
 
@@ -483,21 +488,92 @@ struct SharedState {
     slowest_millis: u64,
     timing: BfsTimingStats,
     heuristic_stats: HeuristicStats,
+    progress: Vec<SearchProgress>,
+    subtrees_queued: usize,
+    subtrees_completed: usize,
+    frozen_exit_prunes: usize,
+    symmetry_prunes: usize,
 }
 
 impl SharedState {
-    fn new() -> Self {
+    fn new(width: u16, height: u16, exit: (u16, u16), progress_count: usize) -> Self {
         Self {
             seen: FxHashMap::default(),
             longest_found: 0,
             slowest_millis: 0,
             timing: BfsTimingStats::new(),
             heuristic_stats: HeuristicStats::new(),
+            progress: (0..progress_count).map(|_| SearchProgress::new(width, height, exit)).collect(),
+            subtrees_queued: 0,
+            subtrees_completed: 0,
+            frozen_exit_prunes: 0,
+            symmetry_prunes: 0,
         }
+    }
+
+    fn progress_message(&self, reason: &str) -> String {
+        self.progress_message_for(search_log::worker_id(), reason)
+    }
+
+    fn progress_message_for(&self, worker: usize, reason: &str) -> String {
+        let message = self.progress[worker].message(reason, self.seen.len(), self.longest_found, self.slowest_millis);
+        if self.progress.len() > 1 { format!("[worker:{worker:02}] {message}") } else { message }
     }
 }
 
-const PARALLEL_DEPTH_THRESHOLD: usize = 8;
+#[derive(Clone, Debug)]
+pub struct BackwardSearchOptions {
+    pub threads: usize,
+    pub split_depth: usize,
+    pub log_dir: PathBuf,
+    pub record_dir: PathBuf,
+    pub checkpoint_dir: Option<PathBuf>,
+    pub resume: bool,
+    pub symmetry: bool,
+    pub extra_records: bool,
+}
+
+impl Default for BackwardSearchOptions {
+    fn default() -> Self {
+        Self { threads: 1, split_depth: 10, log_dir: PathBuf::from("logs"), record_dir: PathBuf::from("."),
+            checkpoint_dir: None, resume: false, symmetry: true, extra_records: true }
+    }
+}
+
+#[derive(Debug)]
+pub struct BackwardSearchSummary {
+    pub longest_found: usize,
+    pub unique_boards: usize,
+    pub subtrees_completed: usize,
+    pub log_directory: Option<PathBuf>,
+    pub stopped: bool,
+    pub checkpoint_skips: usize,
+}
+
+struct BackwardJob {
+    id: usize,
+    board: QuantumBoard,
+    depth: usize,
+    exit: FlatIdx,
+    prev_undo_dir: Option<Dir>,
+    path: Vec<Dir>,
+    shortcuts: ShortcutPaths,
+    required_walls: u128,
+}
+
+struct SearchRuntime {
+    state: Mutex<SharedState>,
+    queue: Option<WorkQueue<BackwardJob>>,
+    split_depth: usize,
+    record_path: PathBuf,
+    checkpoint: Option<Mutex<crate::checkpoint::Checkpoint>>,
+    // Replaying the shallow producer must not depend on worker scheduling.
+    frontier_seen: Option<Mutex<FxHashMap<u64, usize>>>,
+    symmetries: Vec<[Dir; 4]>,
+    stopping: AtomicBool,
+    checkpoint_skips: std::sync::atomic::AtomicUsize,
+    records: Option<crate::search_records::SearchRecords>,
+}
 
 // ── Heuristic implementation ─────────────────────────────────────────────────
 
@@ -576,29 +652,116 @@ fn heuristically_clean(board: &QuantumBoard, kind: UndoKind) -> bool {
 
 // ── Backward DFS ──────────────────────────────────────────────────────────────
 
+fn publish_record(shared: &SearchRuntime, board: &QuantumBoard, exit: FlatIdx, depth: usize) {
+    // Keep the comparison, file append, and best-record update in one critical
+    // section so a slower writer cannot append an older record after a new one.
+    let mut state = shared.state.lock().unwrap();
+    if depth <= state.longest_found { return; }
+    let header = format_board_header(board, exit, &format!("Longest path so far with depth = {}", depth));
+    let text = format!("{}{}\n", header, format_board(board, exit));
+    if let Some(checkpoint) = &shared.checkpoint {
+        checkpoint.lock().unwrap().record(depth, &text).expect("failed to checkpoint record");
+    } else {
+        let mut file = OpenOptions::new().create(true).append(true).open(&shared.record_path)
+            .expect("failed to open record file");
+        file.write_all(text.as_bytes()).expect("failed to write record");
+    }
+    state.longest_found = depth;
+    let message = format!(">>> New record found at depth {}! Writing to {}", depth, shared.record_path.display());
+    println!("{message}");
+    if shared.queue.is_some() { std::println!("[worker:{:02}] {message}", search_log::worker_id()); }
+}
+
+fn solve_for_backward(
+    shared: &SearchRuntime,
+    board: &QuantumBoard,
+    exit: FlatIdx,
+    target_steps: u32,
+    path: &[Dir],
+    _paths: &mut ShortcutPaths,
+    state_limit: Option<u32>,
+) -> BfsResult {
+    let capture = shared.records.as_ref().map(|_| crate::search_records::Capture::start());
+    let started = std::time::Instant::now();
+    #[cfg(feature = "shortcut-reuse")]
+    let result = crate::bfs::forward_bfs_reusing(board, exit, target_steps, path, _paths, 0, state_limit);
+    #[cfg(not(feature = "shortcut-reuse"))]
+    let result = crate::bfs::forward_bfs_complete(board, exit, target_steps, path, 0, state_limit);
+    let elapsed = started.elapsed();
+    if let Some(records) = &shared.records {
+        records.observe(shared.checkpoint.as_ref(), board, capture.and_then(crate::search_records::Capture::finish),
+            exit, path, elapsed, matches!(&result, BfsResult::SomeClean { publishable: true, .. }))
+            .expect("failed to write search records");
+    }
+    result
+}
+
 fn backward_dfs_recursive(
     board: &QuantumBoard,
     depth: usize,
     exit: FlatIdx,
-    shared: &Arc<Mutex<SharedState>>,
+    shared: &Arc<SearchRuntime>,
     prev_undo_dir: Option<Dir>,
     path: Vec<Dir>,
-    shortcuts: Vec<Shortcut>,
+    mut shortcuts: ShortcutPaths,
     required_walls: u128,
+    verified_clean: Option<bool>,
 ) {
     let step_limit_to_print_clean = 2;
+    if search_log::worker_id() == 0 && shared.stopping.load(Ordering::Acquire) { return; }
+    if !crate::symmetry::canonical_path(&path, &shared.symmetries) {
+        shared.state.lock().unwrap().symmetry_prunes += 1;
+        return;
+    }
+    if crate::backward_deadlock::exit_is_pull_frozen(board, exit) {
+        shared.state.lock().unwrap().frozen_exit_prunes += 1;
+        return;
+    }
+
+    if let Some(queue) = &shared.queue {
+        if queue.is_cancelled() { return; }
+        if search_log::worker_id() == 0 && depth >= shared.split_depth {
+            let id = {
+                let mut state = shared.state.lock().unwrap();
+                state.subtrees_queued += 1;
+                state.progress[0].update(&path, "queue-wait");
+                state.subtrees_queued
+            };
+            if let Some(checkpoint) = &shared.checkpoint {
+                let key = crate::checkpoint::subtree_key(board, &path, required_walls);
+                if checkpoint.lock().unwrap().contains(&key) {
+                    shared.checkpoint_skips.fetch_add(1, Ordering::Relaxed);
+                    println!("[subtree:saved] id={id} depth={depth} moves={}", backward_moves(&path));
+                    return;
+                }
+            }
+            // The worker owns the root's visited and record checks too.
+            queue.push(BackwardJob {
+                id, board: board.clone(), depth, exit, prev_undo_dir, path, shortcuts, required_walls,
+            });
+            return;
+        }
+    }
 
     let fp = board_fingerprint(board);
-    let mut should_write_record = false;
+    let coordinator = search_log::worker_id() == 0 && shared.frontier_seen.is_some();
     let mut record_candidate = false;
+    let shallow_progress;
     {
-        let mut shared_guard = shared.lock().unwrap();
-        match shared_guard.seen.get(&fp).copied() {
-            Some(prev_depth) if prev_depth >= depth => return,
-            _ => {
-                shared_guard.seen.insert(fp, depth);
+        let mut shared_guard = shared.state.lock().unwrap();
+        if coordinator {
+            let mut seen = shared.frontier_seen.as_ref().unwrap().lock().unwrap();
+            match seen.get(&fp).copied() {
+                Some(previous) if previous >= depth => return,
+                _ => { seen.insert(fp, depth); }
+            }
+        } else {
+            match shared_guard.seen.get(&fp).copied() {
+                Some(prev_depth) if prev_depth >= depth => { crate::search_records::note_visit(true); return; },
+                _ => { shared_guard.seen.insert(fp, depth); }
             }
         }
+        crate::search_records::note_visit(false);
 
         let seen_len = shared_guard.seen.len();
         if seen_len % 1000 == 0 {
@@ -623,19 +786,28 @@ fn backward_dfs_recursive(
             println!("Path reversed: {}, seen length: {}", out_path, seen_len);
         }
 
-        if depth > shared_guard.longest_found {
+        if depth > shared_guard.longest_found || (coordinator && depth > 0)
+            || (board.get_flat(exit) != Tile::Box && crate::search_records::local_candidate(depth)) {
             record_candidate = true;
         }
+        shared_guard.progress[search_log::worker_id()].update(&path, if record_candidate { "record-solve" } else { "backward" });
+        shallow_progress = (depth < 8).then(|| shared_guard.progress_message("shallow"));
     }
+    if let Some(message) = shallow_progress { print_progress(message); }
 
     if record_candidate {
         let start_time = std::time::Instant::now();
-        let bfs_result = forward_bfs(board, exit, depth as u32, &path, &[], false, 0, None);
+        let bfs_result = match verified_clean {
+            Some(publishable) => BfsResult::SomeClean {
+                ruled_out: Vec::new(), shortcuts: Vec::new(), publishable,
+            },
+            None => solve_for_backward(shared, board, exit, depth as u32, &path, &mut shortcuts, None),
+        };
         let elapsed = start_time.elapsed();
         let elapsed_us = elapsed.as_micros();
 
-        {
-            let mut shared_guard = shared.lock().unwrap();
+        if verified_clean.is_none() {
+            let mut shared_guard = shared.state.lock().unwrap();
             shared_guard.timing.record(elapsed_us, &bfs_result);
         }
 
@@ -650,37 +822,9 @@ fn backward_dfs_recursive(
                 return;
             }
             BfsResult::SomeClean { publishable, .. } => {
-                let mut shared_guard = shared.lock().unwrap();
-                if publishable && depth > shared_guard.longest_found {
-                    shared_guard.longest_found = depth;
-                    should_write_record = true;
-                }
+                if publishable { publish_record(shared, board, exit, depth); }
             }
             BfsResult::Indeterminate { .. } => unreachable!("full forward_bfs returned Indeterminate"),
-        }
-    }
-
-    if should_write_record {
-        let header = format_board_header(
-            &board,
-            exit,
-            &format!("Longest path so far with depth = {}", depth),
-        );
-        let board_str = format_board(&board, exit);
-
-        println!(
-            ">>> New record found at depth {}! Writing to longest_levels_{}_{}.txt",
-            depth,
-            board.width - 2,
-            board.height - 2
-        );
-
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(format!("longest_levels_{}_{}.txt", board.width - 2, board.height - 2))
-        {
-            let _ = write!(file, "{}{}\n", header, board_str);
         }
     }
 
@@ -694,72 +838,14 @@ fn backward_dfs_recursive(
         })
         .collect();
 
-    if depth < PARALLEL_DEPTH_THRESHOLD {
-        let mut local_required_walls = required_walls;
-        rayon::scope(|s| {
-            let mut children_iter = children.into_iter();
-            if let Some((first_dir, first_board, first_kind)) = children_iter.next() {
-                for (dir, bboard, kind) in children_iter {
-                    let board_ref = board;
-                    let shared_ref = Arc::clone(shared);
-                    let path_clone = path.clone();
-                    let shortcuts_clone = shortcuts.clone();
-                    let mut thread_required_walls = local_required_walls;
-                    s.spawn(move |_| {
-                        process_child(
-                            depth,
-                            board_ref,
-                            exit,
-                            &shared_ref,
-                            prev_undo_dir,
-                            path_clone,
-                            shortcuts_clone,
-                            &mut thread_required_walls,
-                            dir,
-                            bboard,
-                            kind,
-                            step_limit_to_print_clean,
-                            record_candidate,
-                        );
-                    });
-                }
-
-                process_child(
-                    depth,
-                    board,
-                    exit,
-                    shared,
-                    prev_undo_dir,
-                    path,
-                    shortcuts,
-                    &mut local_required_walls,
-                    first_dir,
-                    first_board,
-                    first_kind,
-                    step_limit_to_print_clean,
-                    record_candidate,
-                );
-            }
-        });
-    } else {
-        let mut local_required_walls = required_walls;
-        for (dir, bboard, kind) in children {
-            process_child(
-                depth,
-                board,
-                exit,
-                shared,
-                prev_undo_dir,
-                path.clone(),
-                shortcuts.clone(),
-                &mut local_required_walls,
-                dir,
-                bboard,
-                kind,
-                step_limit_to_print_clean,
-                record_candidate,
-            );
-        }
+    let mut local_required_walls = required_walls;
+    for (dir, bboard, kind) in children {
+        if coordinator && shared.stopping.load(Ordering::Acquire) { return; }
+        if shared.queue.as_ref().is_some_and(|queue| queue.is_cancelled()) { return; }
+        process_child(
+            depth, board, exit, shared, prev_undo_dir, path.clone(), shortcuts.clone(),
+            &mut local_required_walls, dir, bboard, kind, step_limit_to_print_clean, record_candidate,
+        );
     }
 }
 
@@ -767,10 +853,10 @@ fn process_child(
     depth: usize,
     board: &QuantumBoard,
     exit: FlatIdx,
-    shared: &Arc<Mutex<SharedState>>,
+    shared: &Arc<SearchRuntime>,
     prev_undo_dir: Option<Dir>,
     path: Vec<Dir>,
-    shortcuts: Vec<Shortcut>,
+    mut shortcuts: ShortcutPaths,
     required_walls: &mut u128,
     dir: Dir,
     mut bboard: QuantumBoard,
@@ -778,7 +864,16 @@ fn process_child(
     step_limit_to_print_clean: u32,
     record_candidate: bool,
 ) {
+    if !shared.symmetries.is_empty() {
+        let mut next_path = vec![dir.opposite()];
+        next_path.extend_from_slice(&path);
+        if !crate::symmetry::canonical_path(&next_path, &shared.symmetries) {
+            shared.state.lock().unwrap().symmetry_prunes += 1;
+            return;
+        }
+    }
     let child_required_walls = *required_walls;
+    shortcuts.prepend(dir.opposite());
     
     if let UndoKind::PureMove { .. } = kind {
         let is_shortcut = depth > 0 && prev_undo_dir == Some(dir.opposite());
@@ -828,6 +923,11 @@ fn process_child(
     bboard.collapse_single_tile_qbs();
     bboard.compact_blocks();
 
+    if crate::backward_deadlock::exit_is_pull_frozen(&bboard, exit) {
+        shared.state.lock().unwrap().frozen_exit_prunes += 1;
+        return;
+    }
+
     let mut next_path = vec![dir.opposite()];
     next_path.extend(path.iter().copied());
 
@@ -852,6 +952,7 @@ fn process_child(
                 next_path,
                 shortcuts.clone(),
                 *required_walls,
+                None,
             );
             return;
         }
@@ -869,6 +970,7 @@ fn process_child(
             next_path,
             shortcuts,
             child_required_walls,
+            None,
         );
         return;
     }
@@ -878,6 +980,7 @@ fn process_child(
     let exit_tile = bboard.get_flat(exit);
     let trivially_covered = matches!(exit_tile, Tile::Box);
     if trivially_covered {
+        shared.state.lock().unwrap().progress[search_log::worker_id()].update(&next_path, "exit-check");
         let mut all_pulls_fail = true;
         for pull_dir in Dir::all() {
             let (px, py) = bboard.coords(exit);
@@ -934,15 +1037,15 @@ fn process_child(
 
     
     
+    shared.state.lock().unwrap().progress[search_log::worker_id()].update(&next_path, "forward-solve");
     let start_time = std::time::Instant::now();
-    let bfs_result = forward_bfs(
+    let bfs_result = solve_for_backward(
+        shared,
         &bboard,
         exit,
         target_steps,
         &next_path,
-        &[],
-        quick_check_only,
-        0,
+        &mut shortcuts,
         Some(10_000),
     );
     let elapsed = start_time.elapsed();
@@ -950,7 +1053,7 @@ fn process_child(
     let elapsed_ms = elapsed.as_millis() as u64;
 
     {
-        let mut shared_guard = shared.lock().unwrap();
+        let mut shared_guard = shared.state.lock().unwrap();
         shared_guard.timing.record(elapsed_us, &bfs_result);
         
         if heuristically_clean(&bboard, kind) {
@@ -1027,40 +1130,23 @@ fn process_child(
                 }
             }
         }
-        BfsResult::Indeterminate{
-            ruled_out,
-            shortcuts: next_shortcuts,
-        } => {
-            if quick_check_only {
-                let mut rboard = bboard;
-                apply_ruled_out(&mut rboard, &ruled_out);
-                rboard.collapse_single_tile_qbs();
-                rboard.compact_blocks();
-                backward_dfs_recursive(
-                    &rboard,
-                    depth + 1,
-                    exit,
-                    shared,
-                    Some(dir),
-                    next_path,
-                    next_shortcuts,
-                    child_required_walls,
-                );
-            }
-        }
+        BfsResult::Indeterminate { .. } => unreachable!("complete child solve returned Indeterminate"),
         BfsResult::SomeClean {
             ruled_out,
-            shortcuts: next_shortcuts,
+            shortcuts: _,
             publishable,
         } => {
             if publishable && target_steps <= step_limit_to_print_clean {
                 println!("Found some-clean board at depth {}:", depth + 1);
                 print!("{}", format_board_header(&bboard, exit, "Some-clean board"));
                 print!("{}", format_board(&bboard, exit));
-                println!("Number of shortcuts found: {}", next_shortcuts.len());
+                println!("Number of shortcut paths retained: {}", shortcuts.paths().len());
                 println!("Ruled out: {} positions", ruled_out.len());
             }
             let mut rboard = bboard;
+            // With no exclusions this is the identical normalized board just
+            // solved above. Reuse its publication proof for the record check.
+            let verified_clean = ruled_out.is_empty().then_some(publishable);
             apply_ruled_out(&mut rboard, &ruled_out);
             rboard.collapse_single_tile_qbs();
             rboard.compact_blocks();
@@ -1071,22 +1157,236 @@ fn process_child(
                 shared,
                 Some(dir),
                 next_path,
-                next_shortcuts,
+                shortcuts,
                 child_required_walls,
+                verified_clean,
             );
         }
     }
 }
 
 pub fn backward_dfs(goal_x: u16, goal_y: u16, inner_width: u16, inner_height: u16) {
+    backward_dfs_with_options(goal_x, goal_y, inner_width, inner_height, &BackwardSearchOptions::default())
+        .expect("backward search failed");
+}
+
+fn start_reporter(shared: &Arc<SearchRuntime>, worker: usize, log: Option<SearchLog>) -> ProgressReporter {
+    let progress_shared = Arc::clone(shared);
+    ProgressReporter::start(REPORT_INTERVAL, move || {
+        let state = progress_shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let message = state.progress_message_for(worker, "periodic");
+        // Append the snapshot before another subtree can update this cursor.
+        if let Some(log) = &log { let _ = log.line(&message); String::new() } else { message }
+    }, |message| {
+        if !message.is_empty() { print_progress(message); }
+    })
+}
+
+fn backward_moves(path: &[Dir]) -> String {
+    path.iter().rev().map(|dir| match dir.opposite() {
+        Dir::Up => 'U', Dir::Down => 'D', Dir::Left => 'L', Dir::Right => 'R',
+    }).collect()
+}
+
+fn run_worker(shared: Arc<SearchRuntime>, worker: usize, log: SearchLog) {
+    let _routing = search_log::enter(worker, log.clone());
+    let queue = shared.queue.as_ref().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        while let Some(job) = queue.pop() {
+            if shared.stopping.load(Ordering::Acquire) { break; }
+            let checkpoint_key = shared.checkpoint.as_ref().map(|_| {
+                crate::checkpoint::subtree_key(&job.board, &job.path, job.required_walls)
+            });
+            let prefix = backward_moves(&job.path);
+            if let Some(records) = &shared.records {
+                records.begin_root(shared.checkpoint.as_ref(), job.id, prefix.clone())
+                    .expect("failed to start subtree records");
+            }
+            shared.state.lock().unwrap().progress[worker].update(&job.path, "subtree");
+            println!("[subtree:start] id={} depth={} moves={prefix}", job.id, job.depth);
+            backward_dfs_recursive(&job.board, job.depth, job.exit, &shared,
+                job.prev_undo_dir, job.path, job.shortcuts, job.required_walls, None);
+            if queue.is_cancelled() {
+                println!("[subtree:cancelled] id={} moves={prefix}", job.id);
+                break;
+            }
+            if let Some(records) = &shared.records {
+                records.finish_root(shared.checkpoint.as_ref()).expect("failed to finish subtree records");
+            }
+            if let Some(key) = checkpoint_key {
+                shared.checkpoint.as_ref().unwrap().lock().unwrap().complete(key)
+                    .expect("failed to checkpoint completed subtree");
+            }
+            {
+                let mut state = shared.state.lock().unwrap();
+                state.subtrees_completed += 1;
+                state.progress[worker].set_phase("idle");
+            }
+            println!("[subtree:finished] id={} moves={prefix}", job.id);
+        }
+    }));
+    if let Err(panic) = result {
+        queue.cancel();
+        let message = panic.downcast_ref::<String>().map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("unknown panic");
+        let _ = log.line(&format!("[worker:failed] {message}"));
+        std::panic::resume_unwind(panic);
+    }
+}
+
+pub fn backward_dfs_with_options(
+    goal_x: u16, goal_y: u16, inner_width: u16, inner_height: u16,
+    options: &BackwardSearchOptions,
+) -> std::io::Result<BackwardSearchSummary> {
+    use std::io::{Error, ErrorKind};
+    if options.threads == 0 || options.split_depth == 0 {
+        return Err(Error::new(ErrorKind::InvalidInput, "threads and split depth must be positive"));
+    }
+    if options.resume && options.checkpoint_dir.is_none() {
+        return Err(Error::new(ErrorKind::InvalidInput, "resume requires a checkpoint directory"));
+    }
+    if inner_width == 0 || inner_height == 0
+        || (u64::from(inner_width) + 2) * (u64::from(inner_height) + 2) > crate::board::MAX_TILES as u64
+        || goal_x == 0 || goal_y == 0 || goal_x > inner_width || goal_y > inner_height {
+        return Err(Error::new(ErrorKind::InvalidInput, "invalid board dimensions or exit"));
+    }
+    let record_name = format!("longest_levels_{inner_width}_{inner_height}.txt");
+    let checkpoint = if let Some(directory) = &options.checkpoint_dir {
+        let metadata = format!("quantum-checkpoint-v1/search-v1/{inner_width}/{inner_height}/{goal_x}/{goal_y}/{}/{}/{}",
+            options.split_depth, options.symmetry,
+            cfg!(feature = "shortcut-reuse"));
+        Some(crate::checkpoint::Checkpoint::open(directory, &metadata, options.resume, &record_name)?)
+    } else { None };
+    let checkpoint_best = checkpoint.as_ref().map_or(0, |c| c.best);
+    let checkpoint_directory = checkpoint.as_ref().map(|c| c.directory.clone());
+    if let Some(checkpoint) = &checkpoint {
+        std::println!("Checkpoint: {} ({} completed subtrees, record {})",
+            checkpoint.directory.display(), checkpoint.completed_count(), checkpoint.best);
+    }
+    let parallel = options.threads > 1 || checkpoint.is_some();
+    let mut logs = Vec::new();
+    let log_directory = if parallel {
+        std::fs::create_dir_all(&options.log_dir)?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(Error::other)?.as_nanos();
+        let directory = options.log_dir.join(format!("{inner_width}x{inner_height}-exit-{goal_x}-{goal_y}-{stamp}-{}", std::process::id()));
+        std::fs::create_dir(&directory)?;
+        logs.push(SearchLog::create(&directory.join("coordinator.log"))?);
+        for worker in 1..=options.threads {
+            logs.push(SearchLog::create(&directory.join(format!("worker-{worker:02}.log")))?);
+        }
+        let directory = if directory.is_absolute() { directory } else { std::env::current_dir()?.join(directory) };
+        std::println!("Parallel search: {} workers, split depth {}, logs: {}",
+            options.threads, options.split_depth, directory.display());
+        Some(directory)
+    } else { None };
+    std::fs::create_dir_all(&options.record_dir)?;
     let board = QuantumBoard::wall_filled_with_player(inner_width, inner_height, goal_x, goal_y);
     let exit = board.flat(goal_x, goal_y);
-    let shared = Arc::new(Mutex::new(SharedState::new()));
-    backward_dfs_recursive(&board, 0, exit, &shared, None, vec![], vec![], 0);
-    
-    let guard = shared.lock().unwrap();
-    guard.timing.print();
-    guard.heuristic_stats.print();
+    let mut initial_state = SharedState::new(inner_width, inner_height, (goal_x, goal_y),
+        if parallel { options.threads + 1 } else { 1 });
+    initial_state.longest_found = checkpoint_best;
+    let records_directory = if let Some(directory) = &checkpoint_directory {
+        directory.join("search-records")
+    } else if let Some(directory) = &log_directory {
+        directory.join("search-records")
+    } else {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(Error::other)?.as_nanos();
+        options.record_dir.join(format!("search-records-{inner_width}x{inner_height}-exit-{goal_x}-{goal_y}-{stamp}"))
+    };
+    let records = if options.extra_records {
+        let records = crate::search_records::SearchRecords::new(records_directory, checkpoint.as_ref())?;
+        std::println!("Search records: {}", records.directory.display());
+        Some(records)
+    } else { None };
+    let shared = Arc::new(SearchRuntime {
+        state: Mutex::new(initial_state),
+        queue: parallel.then(|| WorkQueue::new(options.threads.saturating_mul(2))),
+        split_depth: options.split_depth,
+        record_path: checkpoint_directory.as_ref().unwrap_or(&options.record_dir).join(record_name),
+        frontier_seen: checkpoint.as_ref().map(|_| Mutex::new(FxHashMap::default())),
+        checkpoint: checkpoint.map(Mutex::new),
+        symmetries: if options.symmetry { crate::symmetry::exit_symmetries(inner_width, inner_height, goal_x, goal_y) } else { Vec::new() },
+        stopping: AtomicBool::new(false),
+        checkpoint_skips: std::sync::atomic::AtomicUsize::new(0),
+        records,
+    });
+    std::println!("Exit-preserving symmetries: {}", shared.symmetries.len());
+    let stop_reporter = checkpoint_directory.map(|directory| {
+        let runtime = Arc::clone(&shared);
+        ProgressReporter::start(std::time::Duration::from_millis(250), move || {
+            if directory.join("STOP").exists() && !runtime.stopping.swap(true, Ordering::AcqRel) {
+                runtime.queue.as_ref().unwrap().discard_pending();
+                std::println!("Stop requested: finishing active subtrees and saving their completion.");
+            }
+            String::new()
+        }, |_| {})
+    });
+    let reporters: Vec<_> = if parallel {
+        logs.iter().enumerate().map(|(id, log)| start_reporter(&shared, id, Some(log.clone()))).collect()
+    } else { vec![start_reporter(&shared, 0, None)] };
+    let routing = logs.first().map(|log| search_log::enter(0, log.clone()));
+    let result = if parallel {
+        let queue = shared.queue.as_ref().unwrap();
+        std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            let mut spawn_error = None;
+            for (worker, log) in logs.iter().enumerate().skip(1) {
+                let runtime = Arc::clone(&shared);
+                let log = log.clone();
+                match std::thread::Builder::new().name(format!("search-{worker:02}"))
+                    .spawn_scoped(scope, move || run_worker(runtime, worker, log)) {
+                    Ok(handle) => workers.push(handle),
+                    Err(error) => { spawn_error = Some(error); queue.cancel(); break; }
+                }
+            }
+            let coordinator = if spawn_error.is_none() {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    backward_dfs_recursive(&board, 0, exit, &shared, None, vec![], ShortcutPaths::default(), 0, None);
+                }))
+            } else { Ok(()) };
+            if coordinator.is_err() { queue.cancel(); } else { queue.finish(); }
+            shared.state.lock().unwrap_or_else(|e| e.into_inner()).progress[0].set_phase("waiting-workers");
+            let mut failure = coordinator.err();
+            for worker in workers {
+                if let Err(panic) = worker.join() { if failure.is_none() { failure = Some(panic); } }
+            }
+            if let Some(panic) = failure { std::panic::resume_unwind(panic); }
+            match spawn_error { Some(error) => Err(error), None => Ok(()) }
+        })
+    } else {
+        if let Some(records) = &shared.records { records.begin_root(None, 0, "-".to_owned())?; }
+        backward_dfs_recursive(&board, 0, exit, &shared, None, vec![], ShortcutPaths::default(), 0, None);
+        if let Some(records) = &shared.records { records.finish_root(None)?; }
+        Ok(())
+    };
+    drop(reporters);
+    drop(stop_reporter);
+    drop(routing);
+    result?;
+    let state = shared.state.lock().unwrap();
+    for (worker, log) in logs.iter().enumerate() {
+        log.line(&state.progress_message_for(worker, "finished"))?;
+    }
+    print_progress(state.progress_message_for(0, "finished"));
+    if parallel {
+        std::println!("Parallel search finished: workers={} subtrees={} boards={} best={}",
+            options.threads, state.subtrees_completed, state.seen.len(), state.longest_found);
+    }
+    state.timing.print();
+    println!("Frozen-exit subtrees pruned: {}", state.frozen_exit_prunes);
+    println!("Symmetric subtrees pruned: {}", state.symmetry_prunes);
+    let stopped = shared.stopping.load(Ordering::Acquire);
+    let checkpoint_skips = shared.checkpoint_skips.load(Ordering::Relaxed);
+    if shared.checkpoint.is_some() {
+        std::println!("Checkpoint: skipped {checkpoint_skips} saved subtrees; {}",
+            if stopped { "stopped; resume with --resume" } else { "search complete" });
+    }
+    state.heuristic_stats.print();
+    Ok(BackwardSearchSummary {
+        longest_found: state.longest_found, unique_boards: state.seen.len(),
+        subtrees_completed: state.subtrees_completed, log_directory, stopped, checkpoint_skips,
+    })
 }
 
 
@@ -1145,4 +1445,38 @@ fn compute_floor_distances(board: &QuantumBoard, target: FlatIdx) -> Vec<Option<
     }
 
     distances
+}
+
+#[cfg(test)]
+mod worker_failure_tests {
+    use super::*;
+
+    #[test]
+    fn a_panicking_worker_cancels_queued_work_and_reports_the_failure() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scratch/tests-worker-failure")
+            .join(format!("{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let log_path = directory.join("worker.log");
+        let runtime = Arc::new(SearchRuntime {
+            state: Mutex::new(SharedState::new(4, 4, (2, 2), 2)),
+            queue: Some(WorkQueue::new(1)), split_depth: 10,
+            record_path: directory.join("records.txt"),
+            checkpoint: None, frontier_seen: None, symmetries: Vec::new(),
+            stopping: AtomicBool::new(false), checkpoint_skips: std::sync::atomic::AtomicUsize::new(0),
+            records: None,
+        });
+        // A deliberately invalid board fails inside the forward solve.
+        runtime.queue.as_ref().unwrap().push(BackwardJob {
+            id: 1, board: QuantumBoard::new(4, 4), depth: 10, exit: 14,
+            prev_undo_dir: None, path: vec![Dir::Up; 10],
+            shortcuts: ShortcutPaths::default(), required_walls: 0,
+        });
+        let shared = Arc::clone(&runtime);
+        let log = SearchLog::create(&log_path).unwrap();
+        assert!(std::thread::spawn(move || run_worker(shared, 1, log)).join().is_err());
+        assert!(runtime.queue.as_ref().unwrap().is_cancelled());
+        assert!(runtime.queue.as_ref().unwrap().pop().is_none());
+        assert!(std::fs::read_to_string(log_path).unwrap().contains("[worker:failed]"));
+    }
 }

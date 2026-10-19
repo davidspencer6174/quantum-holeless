@@ -1,5 +1,6 @@
 //! Opt-in inclusive timings; normal builds contain no profiling calls.
 use std::{cell::RefCell, time::Instant};
+use crate::search_log::println;
 
 const NAMES: [&str; 5] = [
     "imputation",

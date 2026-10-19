@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pathology | Root records</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/lucide.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <header><h1>Pathology</h1><span class="eyebrow">Root records</span></header>
+    <div class="sidebar-tools">
+      <input id="filter" type="search" placeholder="Find root or prefix" aria-label="Find root or prefix">
+      <div class="list-info"><span id="level-count">Loading records...</span><button id="refresh" class="icon" title="Refresh records" aria-label="Refresh records"><i data-lucide="refresh-cw"></i></button></div>
+    </div>
+    <nav id="roots" aria-label="Root levels"></nav>
+    <footer id="connection" role="status">Connecting...</footer>
+  </aside>
+  <main>
+    <div class="level-header">
+      <div><span id="level-meta" class="eyebrow">Concrete witness</span><h2 id="level-title">Root records</h2><div id="prefix"></div></div>
+      <div class="toolbar"><button id="undo" class="icon" title="Undo" aria-label="Undo" disabled><i data-lucide="undo-2"></i></button><button id="restart" class="icon" title="Restart" aria-label="Restart" disabled><i data-lucide="rotate-ccw"></i></button></div>
+    </div>
+    <div class="stats"><div><span>Moves</span><strong id="moves">0</strong></div><div><span>Pushes</span><strong id="pushes">0</strong></div><div><span>Record</span><strong id="record">&ndash;</strong></div><div id="result" role="status"></div></div>
+    <div class="play-area"><div id="board" role="img" aria-label="Puzzle board"></div><div id="empty" role="status">Loading levels...</div></div>
+    <div class="below-board"><button id="new-record" hidden>Load new record</button><div class="dpad" aria-label="Movement controls"><button class="icon up" data-direction="U" aria-label="Move up" title="Move up"><i data-lucide="arrow-up"></i></button><button class="icon left" data-direction="L" aria-label="Move left" title="Move left"><i data-lucide="arrow-left"></i></button><button class="icon down" data-direction="D" aria-label="Move down" title="Move down"><i data-lucide="arrow-down"></i></button><button class="icon right" data-direction="R" aria-label="Move right" title="Move right"><i data-lucide="arrow-right"></i></button></div></div>
+  </main>
+</body>
+</html>

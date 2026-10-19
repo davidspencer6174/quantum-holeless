@@ -1,1 +1,18 @@
 data
+
+# Local builds and running-search output.
+/target/
+/logs/
+/runs/
+/search.log
+/longest_levels_5_7.txt
+__pycache__/
+*.pyc
+
+# Keep the frontier helper's sources, not generated experiments and frontiers.
+/scratch/*
+!/scratch/frontier-estimate/
+/scratch/frontier-estimate/*
+!/scratch/frontier-estimate/Cargo.toml
+!/scratch/frontier-estimate/Cargo.lock
+!/scratch/frontier-estimate/src/

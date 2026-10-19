@@ -11,6 +11,37 @@ pub struct BoxState {
 }
 
 impl BoxState {
+    pub fn origin_groups(board: &QuantumBoard) -> [u128; 16] {
+        let mut groups = [0; 16];
+        for (pos, &tile) in board.tiles.iter().enumerate() {
+            if tile == Tile::Box { groups[board.get_box_push_mask(pos as FlatIdx) as usize] |= 1u128 << pos; }
+        }
+        groups
+    }
+
+    /// Concrete boxes with the same push mask are interchangeable within a
+    /// forward solve. Assign sorted destinations to sorted origins so their
+    /// permutations share one visited entry. QB slot identities are unchanged.
+    pub fn canonicalize_group(&mut self, origins: u128) {
+        if origins.count_ones() < 2 { return; }
+        let mut positions = SmallVec::<[FlatIdx; 16]>::new();
+        let mut remaining = origins;
+        while remaining != 0 {
+            let orig = remaining.trailing_zeros() as FlatIdx;
+            remaining &= remaining - 1;
+            positions.push(self.current_of(orig));
+        }
+        positions.sort_unstable();
+        self.moved.retain(|entry| origins & (1u128 << entry.0) == 0);
+        let mut remaining = origins;
+        for current in positions {
+            let orig = remaining.trailing_zeros() as FlatIdx;
+            remaining &= remaining - 1;
+            if orig != current { self.moved.push((orig, current)); }
+        }
+        self.moved.sort_unstable_by_key(|&(orig, _)| orig);
+    }
+
     pub fn current_of(&self, orig: FlatIdx) -> FlatIdx {
         self.moved
             .iter()
@@ -19,11 +50,12 @@ impl BoxState {
     }
 
     pub fn move_box(&mut self, orig: FlatIdx, dest: FlatIdx) {
-        match self.moved.iter_mut().find(|(o, _)| *o == orig) {
-            Some(entry) => entry.1 = dest,
-            None => self.moved.push((orig, dest)),
+        match self.moved.binary_search_by_key(&orig, |&(o, _)| o) {
+            Ok(i) if orig == dest => { self.moved.remove(i); }
+            Ok(i) => self.moved[i].1 = dest,
+            Err(i) if orig != dest => self.moved.insert(i, (orig, dest)),
+            Err(_) => {}
         }
-        self.moved.sort_unstable_by_key(|&(o, _)| o);
     }
 
     pub fn occupies(&self, pos: FlatIdx, board: &QuantumBoard) -> bool {
@@ -46,6 +78,59 @@ impl BoxState {
             return Some(pos);
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod box_state_tests {
+    use super::*;
+
+    #[test]
+    fn equal_mask_boxes_are_interchangeable_including_deleted_boxes() {
+        let mut board = QuantumBoard::new(4, 4);
+        let origins = [board.flat(1, 1), board.flat(2, 1), board.flat(3, 1)];
+        for (i, &orig) in origins.iter().enumerate() {
+            board.set_flat(orig, Tile::Box);
+            board.set_box_push_mask(orig, if i < 2 { 3 } else { 1 });
+        }
+        let groups = BoxState::origin_groups(&board);
+        for destinations in [[20, 21], [origins[0], origins[1]], [21, crate::qstate::FREE_SLOT as FlatIdx]] {
+            let mut a = BoxState::default();
+            let mut b = BoxState::default();
+            for i in 0..2 {
+                a.move_box(origins[i], destinations[i]);
+                b.move_box(origins[i], destinations[1 - i]);
+            }
+            a.move_box(origins[2], 22);
+            b.move_box(origins[2], 22);
+            a.canonicalize_group(groups[3]);
+            b.canonicalize_group(groups[3]);
+            assert_eq!(a, b);
+            assert_eq!(a.current_of(origins[2]), 22);
+            let saved = a.clone();
+            a.canonicalize_group(groups[3]);
+            assert_eq!(a, saved);
+        }
+    }
+
+    #[test]
+    fn returning_home_restores_the_same_state_and_preserves_other_boxes() {
+        let mut board = QuantumBoard::new(4, 4);
+        let a = board.flat(2, 2);
+        let b = board.flat(3, 3);
+        board.set_flat(a, Tile::Box);
+        board.set_flat(b, Tile::Box);
+        let mut state = BoxState::default();
+        state.move_box(b, b - 1);
+        state.move_box(a, a + 1);
+        assert_eq!(state.moved.as_slice(), &[(a, a + 1), (b, b - 1)]);
+        state.move_box(a, a);
+        assert_eq!(state.moved.as_slice(), &[(b, b - 1)]);
+        assert_eq!(state.orig_at(a, &board), Some(a));
+        assert_eq!(state.orig_at(a + 1, &board), None);
+        state.move_box(b, b);
+        state.move_box(a, a);
+        assert_eq!(state, BoxState::default());
     }
 }
 

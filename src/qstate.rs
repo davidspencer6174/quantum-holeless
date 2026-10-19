@@ -1,6 +1,7 @@
 use crate::board::QuantumBoard;
 use crate::types::{Dir, FlatIdx, QBlockId, Tile, PUSH_ALL};
 use smallvec::SmallVec;
+use rustc_hash::FxHashMap;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -29,10 +30,37 @@ impl StartSlot {
 
 // ── Assignment ────────────────────────────────────────────────────────────────
 //
-// A concrete assignment: one slot index per QB (compact id), stored as a
-// SmallVec. `assign[qb] = slot_index` for each QB.
+// A concrete assignment: one selected slot per non-deleted QB, in the
+// assignment search's choice order (not necessarily QB order).
 
 pub type Assignment = SmallVec<[u8; 8]>;
+
+/// Witness IDs are local to a solve. A slot bitset is an exact assignment key,
+/// independent of the order in which the assignment search chose its QBs.
+#[derive(Default)]
+pub struct AssignmentPool {
+    assignments: Vec<Assignment>,
+    indices: FxHashMap<u64, usize>,
+}
+
+impl AssignmentPool {
+    pub fn intern(&mut self, assignment: Assignment) -> usize {
+        let mask = assignment.iter().fold(0u64, |mask, &slot| mask | (1u64 << slot));
+        *self.indices.entry(mask).or_insert_with(|| {
+            let index = self.assignments.len();
+            self.assignments.push(assignment);
+            index
+        })
+    }
+}
+
+impl std::ops::Deref for AssignmentPool {
+    type Target = [Assignment];
+
+    fn deref(&self) -> &Self::Target {
+        &self.assignments
+    }
+}
 
 // ── Shortcut ──────────────────────────────────────────────────────────────────
 
@@ -316,6 +344,23 @@ pub(crate) fn imputation_candidates(qstate: &QState, slots: &[StartSlot]) -> Sma
     possible
 }
 
+/// A sufficient coverage proof for the whole domain, without choosing slots.
+fn domain_covered(qstate: &QState, available: u64, shortcuts: &[ShortcutConstraints]) -> bool {
+    shortcuts.iter().any(|shortcut| {
+        if shortcut.invalid_slots_mask & available != 0 {
+            return false;
+        }
+        // A shortcut's collision can only exclude an assignment if both slots
+        // can coexist in this state. Otherwise every valid choice is covered.
+        shortcut.collision_pairs.iter().all(|&(a, b)| {
+            let pair = (1u64 << a) | (1u64 << b);
+            available & pair != pair
+                || (qstate.cur[a as usize] == qstate.cur[b as usize]
+                    && qstate.cur[a as usize] != FREE_SLOT)
+        })
+    })
+}
+
 /// Find a valid assignment of `qstate` that is NOT covered by any shortcut constraints.
 pub fn find_uncovered_witness(
     qstate: &QState,
@@ -323,18 +368,32 @@ pub fn find_uncovered_witness(
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
 ) -> Option<Assignment> {
+    find_witness_with_forced_slot(qstate, slots, num_qbs, shortcuts, None)
+}
+
+fn find_witness_with_forced_slot(
+    qstate: &QState,
+    slots: &[StartSlot],
+    num_qbs: usize,
+    shortcuts: &[ShortcutConstraints],
+    forced: Option<usize>,
+) -> Option<Assignment> {
     #[cfg(feature = "profile-search")]
     let _timer = crate::search_profile::Timer::start(2);
     if num_qbs == 0 {
         return if shortcuts.is_empty() { Some(SmallVec::new()) } else { None };
     }
-
     let mut choices: [SmallVec<[u8; 8]>; 16] = Default::default();
+    let mut available = 0u64;
     for (i, slot) in slots.iter().enumerate() {
-        if qstate.is_valid(i) {
+        if qstate.is_valid(i)
+            && forced.map_or(true, |f| slot.qb_id != slots[f].qb_id || i == f)
+        {
             choices[slot.qb_id as usize].push(i as u8);
+            if qstate.cur[i] != FREE_SLOT { available |= 1u64 << i; }
         }
     }
+    if domain_covered(qstate, available, shortcuts) { return None; }
 
     let qb_order = match qb_order_by_choices(&choices, num_qbs) {
         Some(order) => order,
@@ -343,6 +402,15 @@ pub fn find_uncovered_witness(
 
     let mut chosen = SmallVec::with_capacity(num_qbs);
     let mut result = None;
+    // After choosing a QB, its other slots cannot appear in any completion.
+    // A shortcut covering this smaller domain rules out the entire branch.
+    let mut suffix = [0u64; 17];
+    for depth in (0..qb_order.len()).rev() {
+        suffix[depth] = suffix[depth + 1];
+        for &i in &choices[qb_order[depth] as usize] {
+            if qstate.cur[i as usize] != FREE_SLOT { suffix[depth] |= 1u64 << i; }
+        }
+    }
 
     fn backtrack(
         depth: usize,
@@ -351,6 +419,7 @@ pub fn find_uncovered_witness(
         used_positions: u128,
         chosen_slots_mask: u64,
         choices: &[SmallVec<[u8; 8]>; 16],
+        suffix: &[u64; 17],
         qstate: &QState,
         shortcuts: &[ShortcutConstraints],
         result: &mut Option<Assignment>,
@@ -374,6 +443,10 @@ pub fn find_uncovered_witness(
             return;
         }
 
+        if depth > 0 && domain_covered(qstate, chosen_slots_mask | suffix[depth], shortcuts) {
+            return;
+        }
+
         let qb = qb_order[depth] as usize;
         if qstate.cur[choices[qb][0] as usize] == FREE_SLOT {
             // If this QB is automatically satisfied, we can skip it without choosing a slot.
@@ -384,6 +457,7 @@ pub fn find_uncovered_witness(
                 used_positions,
                 chosen_slots_mask,
                 choices,
+                suffix,
                 qstate,
                 shortcuts,
                 result,
@@ -407,6 +481,7 @@ pub fn find_uncovered_witness(
                 used_positions | pos_bit,
                 chosen_slots_mask | (1 << idx),
                 choices,
+                suffix,
                 qstate,
                 shortcuts,
                 result,
@@ -422,6 +497,7 @@ pub fn find_uncovered_witness(
         0,
         0u64,
         &choices,
+        &suffix,
         qstate,
         shortcuts,
         &mut result,
@@ -458,88 +534,10 @@ pub fn slot_has_uncovered_assignment(
     num_qbs: usize,
     shortcuts: &[ShortcutConstraints],
 ) -> bool {
-    let forced_qb = slots[forced].qb_id as usize;
     if !qstate.is_valid(forced) {
         return false;
     }
-
-    let mut choices: [SmallVec<[u8; 8]>; 16] = Default::default();
-    for (i, slot) in slots.iter().enumerate() {
-        if !qstate.is_valid(i) {
-            continue;
-        }
-        let qb = slot.qb_id as usize;
-        if qb == forced_qb {
-            if i == forced {
-                choices[qb].push(i as u8);
-            }
-        } else {
-            choices[qb].push(i as u8);
-        }
-    }
-
-    let qb_order = match qb_order_by_choices(&choices, num_qbs) {
-        Some(order) => order,
-        None => return false,
-    };
-
-    let mut result = false;
-    fn backtrack(
-        depth: usize,
-        qb_order: &[u8],
-        chosen: &mut Assignment,
-        used_positions: u128,
-        choices: &[SmallVec<[u8; 8]>; 16],
-        qstate: &QState,
-        shortcuts: &[ShortcutConstraints],
-        result: &mut bool,
-    ) {
-        if *result {
-            return;
-        }
-        if depth == qb_order.len() {
-            if !assignment_covered(chosen, shortcuts) {
-                *result = true;
-            }
-            return;
-        }
-        let qb = qb_order[depth] as usize;
-        for &slot_i in &choices[qb] {
-            let pos_i = qstate.get(slot_i as usize);
-            let pos_bit = 1u128 << pos_i;
-            if (used_positions & pos_bit) != 0 {
-                continue;
-            }
-            chosen.push(slot_i);
-            backtrack(
-                depth + 1,
-                qb_order,
-                chosen,
-                used_positions | pos_bit,
-                choices,
-                qstate,
-                shortcuts,
-                result,
-            );
-            chosen.pop();
-            if *result {
-                return;
-            }
-        }
-    }
-
-    let mut chosen: Assignment = SmallVec::new();
-    backtrack(
-        0,
-        &qb_order,
-        &mut chosen,
-        0,
-        &choices,
-        qstate,
-        shortcuts,
-        &mut result,
-    );
-    result
+    find_witness_with_forced_slot(qstate, slots, num_qbs, shortcuts, Some(forced)).is_some()
 }
 
 /// Operation 6 (Rare): Returns indices of slots at a specific cell.
@@ -584,6 +582,20 @@ mod tests {
     use smallvec::smallvec;
 
     #[test]
+    fn witness_pool_keys_are_exact_and_ignore_choice_order() {
+        let mut pool = AssignmentPool::default();
+        let a = pool.intern(smallvec![0, 8, 47]);
+        assert_eq!(a, pool.intern(smallvec![47, 0, 8]));
+        let b = pool.intern(smallvec![0, 9, 47]);
+        assert_ne!(a, b);
+        assert_eq!(pool[a].as_slice(), &[0, 8, 47]);
+        assert_eq!(pool[b].as_slice(), &[0, 9, 47]);
+        let empty = pool.intern(smallvec![]);
+        assert_eq!(empty, pool.intern(smallvec![]));
+        assert_eq!(pool.len(), 3);
+    }
+
+    #[test]
     fn setting_invalid_updates_both_representations() {
         let (slots, mut state) = build_simple_slots();
         state.set(0, INVALID);
@@ -595,11 +607,105 @@ mod tests {
     }
 
     #[test]
+    fn domain_coverage_matches_exhaustive_assignments() {
+        let (slots, _) = build_simple_slots();
+        // Includes cross-QB collisions, invalid slots, and deleted QBs.
+        let positions = [0, 1, 2, INVALID, FREE_SLOT as FlatIdx];
+        for state_code in 0..625 {
+            let mut state = QState::new(&slots);
+            let mut code = state_code;
+            for i in 0..4 {
+                state.set(i, positions[code % 5]);
+                code /= 5;
+            }
+            // Deleted QBs have every slot free, never mixed with physical slots.
+            if (0..2).any(|qb| (state.get(qb * 2) == FREE_SLOT as FlatIdx)
+                != (state.get(qb * 2 + 1) == FREE_SLOT as FlatIdx)) { continue; }
+            for shortcut_code in 0..256 {
+                let mut shortcut = QState::new(&slots);
+                let mut code = shortcut_code;
+                for i in 0..4 {
+                    shortcut.set(i, positions[code % 4]);
+                    code /= 4;
+                }
+                let constraints = [ShortcutConstraints::from_qstate(&shortcut, &slots)];
+                let mut expected = false;
+                for a in 0..2 {
+                    for b in 2..4 {
+                        if !state.is_valid(a) || !state.is_valid(b) { continue; }
+                        let mut assignment = Assignment::new();
+                        for i in [a, b] {
+                            if state.get(i) != FREE_SLOT as FlatIdx { assignment.push(i as u8); }
+                        }
+                        let mask = assignment.iter().fold(0, |mask, &i| mask | (1u64 << i));
+                        expected |= assignment_valid_in(&assignment, &state)
+                            && !constraints[0].covers_assignment(mask);
+                    }
+                }
+                let actual = find_uncovered_witness(&state, &slots, 2, &constraints);
+                assert_eq!(actual.is_some(), expected, "state={state_code} shortcut={shortcut_code}");
+            }
+        }
+    }
+
+    #[test]
     fn deleted_qbs_do_not_collide_at_the_sentinel() {
         let (_, mut state) = build_simple_slots();
         state.set(0, FREE_SLOT as FlatIdx);
         state.set(2, FREE_SLOT as FlatIdx);
         assert!(assignment_valid_in(&smallvec![0, 2], &state));
+    }
+
+    #[test]
+    fn partial_coverage_and_forced_choices_match_exhaustive_three_qb_assignments() {
+        let slots: Vec<_> = (0..6).map(|i| StartSlot {
+            qb_id: i / 2, start_pos: i as FlatIdx, is_wall: false, push_mask: PUSH_ALL,
+        }).collect();
+        let mut seed = 17u64;
+        let mut random = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (seed >> 32) as usize
+        };
+        for case in 0..2048 {
+            let mut state = QState::new(&slots);
+            for i in 0..6 {
+                state.set(i, [1, 2, 3, 4, INVALID][random() % 5]);
+            }
+            if case % 5 == 0 {
+                let qb = random() % 3;
+                state.set(qb * 2, FREE_SLOT as FlatIdx);
+                state.set(qb * 2 + 1, FREE_SLOT as FlatIdx);
+            }
+            let constraints: Vec<_> = (0..case % 5).map(|_| {
+                let mut shortcut = QState::new(&slots);
+                for i in 0..6 { shortcut.set(i, [1, 2, 3, INVALID][random() % 4]); }
+                ShortcutConstraints::from_qstate(&shortcut, &slots)
+            }).collect();
+            let mut expected = false;
+            let mut forced_expected = [false; 6];
+            for code in 0..8 {
+                let choices = [code & 1, 2 + ((code >> 1) & 1), 4 + ((code >> 2) & 1)];
+                if choices.iter().any(|&i| !state.is_valid(i)) { continue; }
+                let assignment: Assignment = choices.iter().copied()
+                    .filter(|&i| state.cur[i] != FREE_SLOT).map(|i| i as u8).collect();
+                let mask = assignment.iter().fold(0u64, |m, &i| m | (1 << i));
+                if assignment_valid_in(&assignment, &state)
+                    && !constraints.iter().any(|c| c.covers_assignment(mask)) {
+                    expected = true;
+                    for i in choices { forced_expected[i] = true; }
+                }
+            }
+            let witness = find_uncovered_witness(&state, &slots, 3, &constraints);
+            assert_eq!(witness.is_some(), expected, "case={case}");
+            if let Some(witness) = witness {
+                assert!(assignment_valid_in(&witness, &state));
+                assert!(!assignment_covered(&witness, &constraints));
+            }
+            for (i, expected) in forced_expected.into_iter().enumerate() {
+                assert_eq!(slot_has_uncovered_assignment(i, &state, &slots, 3, &constraints), expected,
+                    "case={case} forced={i}");
+            }
+        }
     }
 
     fn build_simple_slots() -> (Vec<StartSlot>, QState) {

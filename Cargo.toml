@@ -5,6 +5,11 @@ edition = "2021"
 
 [features]
 profile-search = []
+indexed-dominance = []
+shortcut-reuse = []
+walking-dominance = []
+split-shortcut-reuse = []
+relaxed-budget = []
 
 [[bin]]
 name = "quantum"
