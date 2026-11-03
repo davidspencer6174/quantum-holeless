@@ -45,9 +45,13 @@ fn board_fingerprint(board: &QuantumBoard) -> u64 {
     }
 
     // 2. Hash tiles using canonical IDs.
-    for &tile in &board.tiles[..total] {
+    for (idx, &tile) in board.tiles[..total].iter().enumerate() {
         match tile {
             Tile::Quantum(id) => Tile::Quantum(old_to_canonical[id as usize]).hash(&mut h),
+            Tile::Box => {
+                tile.hash(&mut h);
+                board.get_box_push_mask(idx as FlatIdx).hash(&mut h);
+            }
             other => other.hash(&mut h),
         }
     }
@@ -64,6 +68,11 @@ fn board_fingerprint(board: &QuantumBoard) -> u64 {
         for (pos, starts) in cells {
             pos.hash(&mut h);
             starts.as_slice().hash(&mut h);
+            qb.position_push_mask(pos).hash(&mut h);
+        }
+        for start in qb.all_starts() {
+            start.hash(&mut h);
+            qb.push_mask_for_start(start).hash(&mut h);
         }
         qb.wall_pos.hash(&mut h);
     }
@@ -220,91 +229,117 @@ fn undo_move(
         .map(|(x, y)| board.flat(x, y));
     let push_src_tile = push_src.map(|f| board.get_flat(f));
 
-    let mut base = board.clone();
+    let mut base_candidates = SmallVec::<[QuantumBoard; 2]>::new();
     match from_tile {
-        Tile::Floor => {}
+        Tile::Floor => {
+            base_candidates.push(board.clone());
+        }
         Tile::Wall => {
             if (required_walls & (1u128 << from)) != 0 {
                 return vec![];
             }
-            base.set_flat(from, Tile::Floor);
+            let mut b = board.clone();
+            b.set_flat(from, Tile::Floor);
+            base_candidates.push(b);
         }
         Tile::Quantum(id) => {
-            let became_empty = base.qb_remove_current(id, from);
-            if became_empty {
-                return vec![];
+            let is_wall_pos = board.quantum_blocks[id as usize].wall_pos == Some(from);
+            if is_wall_pos {
+                // Branch 1: The block was pushed, rule out from as wall_pos.
+                let mut b1 = board.clone();
+                let became_empty = b1.qb_remove_current(id, from);
+                if !became_empty {
+                    base_candidates.push(b1);
+                }
+
+                // Branch 2: The block was never pushed (does not exist at all).
+                let mut b2 = board.clone();
+                b2.remove_qb(id);
+                b2.compact_blocks();
+                base_candidates.push(b2);
+            } else {
+                let mut b = board.clone();
+                let became_empty = b.qb_remove_current(id, from);
+                if !became_empty {
+                    base_candidates.push(b);
+                }
             }
         }
         Tile::Box | Tile::Player => return vec![],
     }
 
-    base.set_flat(player, Tile::Floor);
-    base.set_flat(from, Tile::Player);
-    let push_direction_mask = dir.opposite().mask();
+    let mut results = Vec::with_capacity(base_candidates.len());
+    for mut base in base_candidates {
+        base.set_flat(player, Tile::Floor);
+        base.set_flat(from, Tile::Player);
+        let push_direction_mask = dir.opposite().mask();
 
-    let kind = match (push_src, push_src_tile) {
-        (None, _) | (_, Some(Tile::Floor)) => UndoKind::PureMove { original_dest_tile: from_tile },
+        let cur_push_src_tile = push_src.map(|f| base.get_flat(f));
 
-        (Some(src), Some(Tile::Wall)) => {
-            let new_id = base.quantum_blocks.len() as QBlockId;
-            let mut cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
-            cells.insert(src, fis_single(src));
-            cells.insert(player, fis_single(player));
-            let mut push_masks: FxHashMap<FlatIdx, crate::types::PushMask> = FxHashMap::default();
-            push_masks.insert(src, crate::types::PUSH_NONE);
-            push_masks.insert(player, push_direction_mask);
-            base.set_flat(src, Tile::Quantum(new_id));
-            base.set_flat(player, Tile::Quantum(new_id));
-            base.quantum_blocks
-                .push(QuantumBlock::new_with_push_masks(cells, Some(src), push_masks));
-            UndoKind::Pull {
-                qb_id: new_id,
-                pulled_pos: player,
-                original_dest_tile: from_tile,
+        let kind = match (push_src, cur_push_src_tile) {
+            (None, _) | (_, Some(Tile::Floor)) => UndoKind::PureMove { original_dest_tile: from_tile },
+
+            (Some(src), Some(Tile::Wall)) => {
+                let new_id = base.quantum_blocks.len() as QBlockId;
+                let mut cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
+                cells.insert(src, fis_single(src));
+                cells.insert(player, fis_single(player));
+                let mut push_masks: FxHashMap<FlatIdx, crate::types::PushMask> = FxHashMap::default();
+                push_masks.insert(src, crate::types::PUSH_NONE);
+                push_masks.insert(player, push_direction_mask);
+                base.set_flat(src, Tile::Quantum(new_id));
+                base.set_flat(player, Tile::Quantum(new_id));
+                base.quantum_blocks
+                    .push(QuantumBlock::new_with_push_masks(cells, Some(src), push_masks));
+                UndoKind::Pull {
+                    qb_id: new_id,
+                    pulled_pos: player,
+                    original_dest_tile: from_tile,
+                }
             }
-        }
 
-        (Some(src), Some(Tile::Box)) => {
-            let new_id = base.quantum_blocks.len() as QBlockId;
-            let mut cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
-            cells.insert(src, fis_single(src));
-            cells.insert(player, fis_single(player));
-            let src_mask = base.get_box_push_mask(src);
-            let player_mask = src_mask | push_direction_mask;
-            let mut push_masks: FxHashMap<FlatIdx, crate::types::PushMask> = FxHashMap::default();
-            push_masks.insert(src, src_mask);
-            push_masks.insert(player, player_mask);
-            base.set_flat(src, Tile::Quantum(new_id));
-            base.set_flat(player, Tile::Quantum(new_id));
-            base.quantum_blocks.push(QuantumBlock::new_with_push_masks(cells, None, push_masks));
-            UndoKind::Pull {
-                qb_id: new_id,
-                pulled_pos: player,
-                original_dest_tile: from_tile,
+            (Some(src), Some(Tile::Box)) => {
+                let new_id = base.quantum_blocks.len() as QBlockId;
+                let mut cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
+                cells.insert(src, fis_single(src));
+                cells.insert(player, fis_single(player));
+                let src_mask = base.get_box_push_mask(src);
+                let player_mask = src_mask | push_direction_mask;
+                let mut push_masks: FxHashMap<FlatIdx, crate::types::PushMask> = FxHashMap::default();
+                push_masks.insert(src, src_mask);
+                push_masks.insert(player, player_mask);
+                base.set_flat(src, Tile::Quantum(new_id));
+                base.set_flat(player, Tile::Quantum(new_id));
+                base.quantum_blocks.push(QuantumBlock::new_with_push_masks(cells, None, push_masks));
+                UndoKind::Pull {
+                    qb_id: new_id,
+                    pulled_pos: player,
+                    original_dest_tile: from_tile,
+                }
             }
-        }
 
-        (Some(src), Some(Tile::Quantum(push_id))) => {
-            let old_mask = base.quantum_blocks[push_id as usize].box_push_mask_at(push_src.unwrap());
-            let player_mask = old_mask | push_direction_mask;
-            base.set_flat(player, Tile::Quantum(push_id));
-            base.quantum_blocks[push_id as usize]
-                .cells
-                .insert(player, fis_single(player));
-            base.quantum_blocks[push_id as usize]
-                .push_masks
-                .insert(player, player_mask);
-            UndoKind::Pull {
-                qb_id: push_id,
-                pulled_pos: player,
-                original_dest_tile: from_tile,
+            (Some(src), Some(Tile::Quantum(push_id))) => {
+                let later_mask = base.quantum_blocks[push_id as usize].position_push_mask(push_src.unwrap());
+                let player_mask = later_mask | push_direction_mask;
+                base.set_flat(player, Tile::Quantum(push_id));
+                let qb = &mut base.quantum_blocks[push_id as usize];
+                qb.cells.insert(player, fis_single(player));
+                qb.push_masks.insert(player, player_mask);
+                qb.position_masks.insert(player, player_mask);
+                UndoKind::Pull {
+                    qb_id: push_id,
+                    pulled_pos: player,
+                    original_dest_tile: from_tile,
+                }
             }
-        }
 
-        (_, Some(Tile::Player)) | (_, None) => UndoKind::PureMove { original_dest_tile: from_tile },
-    };
+            (_, Some(Tile::Player)) | (_, None) => UndoKind::PureMove { original_dest_tile: from_tile },
+        };
 
-    vec![(base, kind)]
+        results.push((base, kind));
+    }
+
+    results
 }
 
 // ── Apply ruled_out to a board ────────────────────────────────────────────────
@@ -958,7 +993,6 @@ fn process_child(
         }
     }
 
-    let quick_check_only = false;
     //let quick_check_only = heuristically_clean(&bboard, kind) && !record_candidate;
     if heuristically_clean(&bboard, kind) {
         backward_dfs_recursive(
@@ -977,66 +1011,6 @@ fn process_child(
 
 
 
-    let exit_tile = bboard.get_flat(exit);
-    let trivially_covered = matches!(exit_tile, Tile::Box);
-    if trivially_covered {
-        shared.state.lock().unwrap().progress[search_log::worker_id()].update(&next_path, "exit-check");
-        let mut all_pulls_fail = true;
-        for pull_dir in Dir::all() {
-            let (px, py) = bboard.coords(exit);
-            let from = match pull_dir.apply(px, py) {
-                Some((fx, fy)) if bboard.in_inner(fx, fy) => bboard.flat(fx, fy),
-                _ => continue,
-            };
-            let from_tile = bboard.get_flat(from);
-            let (from_x, from_y) = bboard.coords(from);
-            let from_2 = match pull_dir.apply(from_x, from_y) {
-                Some((from_x, from_y)) if bboard.in_inner(from_x, from_y) => bboard.flat(from_x, from_y),
-                _ => continue,
-            };
-            let from_2_tile = bboard.get_flat(from_2);
-            let mut wall_to_clear_tile = None;
-            if from_tile == Tile::Wall && from_2_tile != Tile::Wall {
-                wall_to_clear_tile = Some(from);
-            }
-            if from_2_tile == Tile::Wall && from_tile != Tile::Wall {
-                wall_to_clear_tile = Some(from_2);
-            }
-            let mut test_board = bboard.clone();
-            if let Some(wall_to_clear) = wall_to_clear_tile {
-                test_board.set_flat(wall_to_clear, Tile::Floor);
-            }
-            let exit_push_mask = bboard.get_box_push_mask(exit);
-            if exit_push_mask & pull_dir.opposite().mask() != 0 && wall_to_clear_tile.is_none() {
-                all_pulls_fail = false;
-                break;
-            }
-            bboard.set_box_push_mask(exit, exit_push_mask | pull_dir.opposite().mask());
-            test_board.collapse_single_tile_qbs();
-            test_board.compact_blocks();
-            let test_path = vec![pull_dir.opposite()];
-            let test_result = forward_bfs(
-                &test_board,
-                exit,
-                target_steps,
-                &test_path,
-                &[],
-                quick_check_only,
-                0,
-                Some(350_000),
-            );
-            if !matches!(test_result, BfsResult::AllShortcut) {
-                all_pulls_fail = false;
-                break;
-            }
-        }
-        if all_pulls_fail {
-            return;
-        }
-    }
-
-    
-    
     shared.state.lock().unwrap().progress[search_log::worker_id()].update(&next_path, "forward-solve");
     let start_time = std::time::Instant::now();
     let bfs_result = solve_for_backward(
@@ -1452,6 +1426,31 @@ mod worker_failure_tests {
     use super::*;
 
     #[test]
+    fn board_fingerprint_includes_block_push_masks() {
+        let mut first = QuantumBoard::wall_filled_with_player(3, 3, 2, 2);
+        let pos = first.flat(1, 1);
+        let id = first.add_quantum_block([pos], None);
+        first.quantum_blocks[id as usize].set_push_mask(pos, crate::types::PUSH_UP);
+
+        let mut different_start_mask = first.clone();
+        different_start_mask.quantum_blocks[id as usize]
+            .set_push_mask(pos, crate::types::PUSH_DOWN);
+        assert_ne!(board_fingerprint(&first), board_fingerprint(&different_start_mask));
+
+        let mut different_position_mask = first.clone();
+        different_position_mask.quantum_blocks[id as usize]
+            .set_position_push_mask(pos, crate::types::PUSH_LEFT);
+        assert_ne!(board_fingerprint(&first), board_fingerprint(&different_position_mask));
+
+        let mut concrete = QuantumBoard::wall_filled_with_player(3, 3, 2, 2);
+        concrete.set_flat(pos, Tile::Box);
+        concrete.set_box_push_mask(pos, crate::types::PUSH_UP);
+        let mut different_concrete_mask = concrete.clone();
+        different_concrete_mask.set_box_push_mask(pos, crate::types::PUSH_RIGHT);
+        assert_ne!(board_fingerprint(&concrete), board_fingerprint(&different_concrete_mask));
+    }
+
+    #[test]
     fn a_panicking_worker_cancels_queued_work_and_reports_the_failure() {
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scratch/tests-worker-failure")
@@ -1478,5 +1477,230 @@ mod worker_failure_tests {
         assert!(runtime.queue.as_ref().unwrap().is_cancelled());
         assert!(runtime.queue.as_ref().unwrap().pop().is_none());
         assert!(std::fs::read_to_string(log_path).unwrap().contains("[worker:failed]"));
+    }
+
+    #[test]
+    fn search_from_step_15() {
+        let moves_str = include_str!("../tests/fixtures/5x7-176-route.txt").trim();
+
+        let forward_moves: Vec<Dir> = moves_str
+            .chars()
+            .map(|ch| match ch {
+                'U' => Dir::Down, // vertically reflected (canonical)
+                'D' => Dir::Up,   // vertically reflected
+                'L' => Dir::Left,
+                'R' => Dir::Right,
+                _ => panic!("unknown char {}", ch),
+            })
+            .collect();
+
+        let exit_x = 3;
+        let exit_y = 3;
+        let width = 7;
+        let height = 5;
+
+        let mut current_board = QuantumBoard::wall_filled_with_player(width, height, exit_x, exit_y);
+        let exit = current_board.flat(exit_x, exit_y);
+        let symmetries = crate::symmetry::exit_symmetries(width, height, exit_x, exit_y);
+
+        let mut path = Vec::new();
+        let mut prev_undo_dir: Option<Dir> = None;
+        let required_walls = 0u128;
+
+        // Advance 15 steps along the route to reach the step 15 root
+        for (k, &fwd_move) in forward_moves.iter().rev().take(15).enumerate() {
+            let depth = k;
+            let undo_dir = fwd_move.opposite();
+            let moves = undo_move(&current_board, undo_dir, required_walls);
+            assert_eq!(moves.len(), 1, "expected 1 move in steps 1..15");
+            let (mut bboard, kind) = moves.into_iter().next().unwrap();
+
+            let mut next_path = vec![undo_dir.opposite()];
+            next_path.extend_from_slice(&path);
+
+            if let UndoKind::Pull { qb_id, pulled_pos, .. } = kind {
+                if prev_undo_dir == Some(undo_dir.opposite()) {
+                    if let Some(qb) = bboard.quantum_blocks.get(qb_id as usize) {
+                        if qb.starts_for(pulled_pos).is_some() {
+                            let box_starts = qb.box_starts_at(pulled_pos);
+                            bboard.resolve_qb_to_box(qb_id, pulled_pos, box_starts);
+                        }
+                    }
+                }
+            }
+            bboard.collapse_single_tile_qbs();
+            bboard.compact_blocks();
+
+            let target_steps = (depth + 1) as u32;
+            let bfs_result = crate::bfs::forward_bfs_complete(&bboard, exit, target_steps, &next_path, 0, None);
+            match bfs_result {
+                BfsResult::SomeClean { ruled_out, .. } => {
+                    apply_ruled_out(&mut bboard, &ruled_out);
+                    bboard.collapse_single_tile_qbs();
+                    bboard.compact_blocks();
+                }
+                other => panic!("expected SomeClean in first 15 steps, got {:?}", match other {
+                    BfsResult::AllShortcut => "AllShortcut",
+                    BfsResult::Unreachable => "Unreachable",
+                    _ => "Other",
+                }),
+            }
+
+            current_board = bboard;
+            path = next_path;
+            prev_undo_dir = Some(undo_dir);
+        }
+
+        std::println!("Reached step 15 root board:\n{}", format_board(&current_board, exit));
+
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scratch/tests-step15")
+            .join(format!("{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let runtime = Arc::new(SearchRuntime {
+            state: Mutex::new(SharedState::new(width, height, (exit_x, exit_y), 1)),
+            queue: None,
+            split_depth: 250,
+            record_path: directory.join("records.txt"),
+            checkpoint: None,
+            frontier_seen: None,
+            symmetries,
+            stopping: AtomicBool::new(false),
+            checkpoint_skips: std::sync::atomic::AtomicUsize::new(0),
+            records: None,
+        });
+
+        // Guided DFS prioritizing moves along the target 176 path
+        fn guided_dfs(
+            board: &QuantumBoard,
+            depth: usize,
+            exit: FlatIdx,
+            shared: &Arc<SearchRuntime>,
+            prev_undo_dir: Option<Dir>,
+            path: Vec<Dir>,
+            shortcuts: ShortcutPaths,
+            required_walls: u128,
+            forward_moves: &[Dir],
+        ) -> bool {
+            if depth >= 176 {
+                shared.state.lock().unwrap().longest_found = depth;
+                std::println!("FOUND 176! depth = {}", depth);
+                return true;
+            }
+
+            let pref_dir = if depth < 176 {
+                Some(forward_moves[176 - depth - 1].opposite())
+            } else {
+                None
+            };
+
+            let mut children: Vec<(Dir, QuantumBoard, UndoKind)> = Dir::all()
+                .iter()
+                .copied()
+                .flat_map(|dir| {
+                    undo_move(board, dir, required_walls)
+                        .into_iter()
+                        .map(move |(bboard, kind)| (dir, bboard, kind))
+                })
+                .collect();
+
+            // Keep only branches that follow the certified route.
+            children.retain(|&(dir, _, _)| Some(dir) == pref_dir);
+
+            for (dir, mut bboard, kind) in children {
+                let mut next_path = vec![dir.opposite()];
+                next_path.extend_from_slice(&path);
+
+                if let UndoKind::PureMove { .. } = kind {
+                    if depth > 0 && prev_undo_dir == Some(dir.opposite()) {
+                        continue;
+                    }
+                    if let Some(interaction_idx) = find_first_interaction_source(board, &path, exit) {
+                        let parent_player = board.find_player();
+                        let child_player = bboard.find_player();
+                        let floor_dists = compute_floor_distances(board, interaction_idx);
+                        if let (Some(parent_dist), Some(child_dist)) = (
+                            floor_dists[parent_player as usize],
+                            floor_dists[child_player as usize],
+                        ) {
+                            if child_dist < parent_dist {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                if !shared.symmetries.is_empty() && !crate::symmetry::canonical_path(&next_path, &shared.symmetries) {
+                    continue;
+                }
+
+                if let UndoKind::Pull { qb_id, pulled_pos, .. } = kind {
+                    if prev_undo_dir == Some(dir.opposite()) {
+                        if let Some(qb) = bboard.quantum_blocks.get(qb_id as usize) {
+                            if qb.starts_for(pulled_pos).is_some() {
+                                let box_starts = qb.box_starts_at(pulled_pos);
+                                bboard.resolve_qb_to_box(qb_id, pulled_pos, box_starts);
+                            }
+                        }
+                    }
+                }
+                bboard.collapse_single_tile_qbs();
+                bboard.compact_blocks();
+
+                if crate::backward_deadlock::exit_is_pull_frozen(&bboard, exit) {
+                    continue;
+                }
+
+                let target_steps = (depth + 1) as u32;
+                let bfs_result = crate::bfs::forward_bfs_complete(&bboard, exit, target_steps, &next_path, 0, None);
+                match bfs_result {
+                    BfsResult::AllShortcut | BfsResult::Unreachable => continue,
+                    BfsResult::SomeClean { ruled_out, publishable, .. } => {
+                        if depth + 1 > shared.state.lock().unwrap().longest_found {
+                            shared.state.lock().unwrap().longest_found = depth + 1;
+                            std::println!("Reached depth {} (publishable={})", depth + 1, publishable);
+                        }
+                        let mut next_board = bboard.clone();
+                        apply_ruled_out(&mut next_board, &ruled_out);
+                        next_board.collapse_single_tile_qbs();
+                        next_board.compact_blocks();
+                        if guided_dfs(
+                            &next_board,
+                            depth + 1,
+                            exit,
+                            shared,
+                            Some(dir),
+                            next_path,
+                            shortcuts.clone(),
+                            required_walls,
+                            forward_moves,
+                        ) {
+                            return true;
+                        }
+                    }
+                    BfsResult::Indeterminate { .. } => {}
+                }
+            }
+
+            false
+        }
+
+        std::println!("Starting guided search from depth 15 root...");
+        let found = guided_dfs(
+            &current_board,
+            15,
+            exit,
+            &runtime,
+            prev_undo_dir,
+            path,
+            ShortcutPaths::default(),
+            required_walls,
+            &forward_moves,
+        );
+
+        let longest = runtime.state.lock().unwrap().longest_found;
+        std::println!("Search finished! Found: {}, longest found: {}", found, longest);
+        assert!(found, "route stopped at depth {longest}; expected 176 steps");
+        assert_eq!(longest, 176);
     }
 }

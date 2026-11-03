@@ -24,10 +24,20 @@ function loadLevel(level) {
   renderRoots(); renderBoard();
 }
 
+function minimumSteps() {
+  const value = Math.floor(Number($('min-steps').value));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 function renderRoots() {
   const query = $('filter').value.trim().toUpperCase();
-  const visible = levels.filter(level => String(level.id).includes(query) || level.prefix.includes(query));
-  $('level-count').textContent = `${levels.length} ${levels.length === 1 ? 'level' : 'levels'}`;
+  const minimum = minimumSteps();
+  const visible = levels.filter(level => level.steps >= minimum &&
+    (String(level.id).includes(query) || level.prefix.includes(query)));
+  const filtered = Boolean(query) || minimum > 0;
+  $('level-count').textContent = filtered
+    ? `${visible.length} of ${levels.length} levels`
+    : `${levels.length} ${levels.length === 1 ? 'level' : 'levels'}`;
   $('roots').replaceChildren(...visible.map(level => {
     const button = document.createElement('button');
     button.className = 'root' + (selected?.id === level.id ? ' selected' : '');
@@ -141,6 +151,12 @@ $('undo').addEventListener('click', undo);
 $('restart').addEventListener('click', () => selected && loadLevel(selected));
 $('new-record').addEventListener('click', () => { const latest = levels.find(level => level.id === selected?.id); if (latest) loadLevel(latest); });
 $('filter').addEventListener('input', renderRoots);
+$('min-steps').addEventListener('input', renderRoots);
+$('min-steps').addEventListener('change', () => {
+  const value = minimumSteps();
+  $('min-steps').value = value > 0 ? value : '';
+  renderRoots();
+});
 $('refresh').addEventListener('click', refresh);
 for (const button of document.querySelectorAll('[data-direction]')) button.addEventListener('click', () => move(button.dataset.direction));
 lucide.createIcons();

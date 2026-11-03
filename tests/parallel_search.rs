@@ -98,7 +98,7 @@ fn parallel_search_preserves_record_and_orders_each_workers_subtrees() {
                         .unwrap();
                     let prefix = dfs_order(line.split("moves=").nth(1).unwrap());
                     assert!(id > previous_id);
-                    assert!(prefix > previous_prefix);
+                    assert!(prefix > previous_prefix, "prefix: {:?}, prev: {:?}, line: {}", prefix, previous_prefix, line);
                     assert_eq!(prefix.len(), split_depth);
                     previous_id = id;
                     previous_prefix = prefix;

@@ -11,6 +11,8 @@ h1 { margin: 0 0 5px; font-size: 25px; font-weight: 650; }
 .eyebrow { color: #b6b6b6; font-size: 12px; }
 .sidebar-tools { padding: 0 16px 10px; border-bottom: 1px solid #363636; }
 input { width: 100%; min-width: 0; border: 1px solid #505050; border-radius: 4px; background: #272727; padding: 10px; color: #eee; font-size: 13px; }
+.min-steps { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; color: #b6b6b6; font-size: 12px; }
+.min-steps input { width: 84px; flex: 0 0 84px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
 .list-info { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 0 8px; color: #b6b6b6; font-size: 12px; }
 .icon { width: 40px; height: 40px; flex: 0 0 40px; background: transparent; border: 1px solid #555; border-radius: 4px; display: inline-grid; place-items: center; font-size: 25px; line-height: 1; }
 .icon:hover:not(:disabled) { background: #3c3c3c; }
@@ -61,6 +63,9 @@ h2 { margin: 4px 0 6px; font-size: 24px; font-weight: 600; }
   header { padding: 16px 18px 10px; display: flex; align-items: baseline; gap: 12px; }
   h1 { font-size: 22px; margin: 0; }
   .sidebar-tools { padding: 0 16px; display: flex; gap: 12px; align-items: center; }
+  .min-steps { margin: 0; flex-shrink: 0; }
+  .min-steps label { display: none; }
+  .min-steps input { width: 72px; flex-basis: 72px; }
   .list-info { flex-shrink: 0; gap: 4px; margin: 0; }
   #roots { display: flex; gap: 4px; padding: 8px; overflow-x: auto; }
   .root { flex: 0 0 160px; width: 160px; padding: 10px; }

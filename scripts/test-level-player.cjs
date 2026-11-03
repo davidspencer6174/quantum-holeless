@@ -51,6 +51,20 @@ fs.mkdirSync(output, { recursive: true });
     assert.equal(await page.locator('#level-title').textContent(), `Root ${levels.at(-1).id}`);
     await page.locator('#filter').fill('');
     await page.locator('#filter').blur();
+    const threshold = Math.max(...levels.map(level => level.steps));
+    await page.locator('#min-steps').fill(String(threshold));
+    // Read the list in one page task so a background refresh cannot change it mid-check.
+    const filtered = await page.evaluate(() => {
+      const scores = [...document.querySelectorAll('.root-score')].map(node => Number.parseInt(node.textContent, 10));
+      return { shown: scores.length, total: levels.length, scores, count: document.getElementById('level-count').textContent };
+    });
+    assert.ok(filtered.shown > 0 && filtered.shown <= filtered.total);
+    assert.ok(filtered.scores.every(score => score >= threshold));
+    assert.match(filtered.count, /^\d+ of \d+ levels$/);
+    await page.locator('#min-steps').fill('');
+    await page.locator('#min-steps').blur();
+    const cleared = await page.evaluate(() => ({ shown: document.querySelectorAll('.root').length, total: levels.length }));
+    assert.equal(cleared.shown, cleared.total);
     const synthetic = { id: 999, prefix: 'U', status: 'running', steps: 3, solution: 'RRR', width: 5, height: 1, exit: 3, player: 0, walls: [], boxes: [{ position: 1, mask: 8 }] };
     await page.evaluate(level => loadLevel(level), synthetic);
     assert.equal(await page.locator('.edge.left').count(), 1);

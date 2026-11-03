@@ -13,6 +13,10 @@
     <header><h1>Pathology</h1><span class="eyebrow">Root records</span></header>
     <div class="sidebar-tools">
       <input id="filter" type="search" placeholder="Find root or prefix" aria-label="Find root or prefix">
+      <div class="min-steps">
+        <label for="min-steps">Minimum moves</label>
+        <input id="min-steps" type="number" min="0" step="1" inputmode="numeric" placeholder="Any" aria-label="Minimum moves" title="Hide roots with fewer moves">
+      </div>
       <div class="list-info"><span id="level-count">Loading records...</span><button id="refresh" class="icon" title="Refresh records" aria-label="Refresh records"><i data-lucide="refresh-cw"></i></button></div>
     </div>
     <nav id="roots" aria-label="Root levels"></nav>

@@ -324,6 +324,13 @@ pub(crate) fn subtree_key(
             key.extend_from_slice(&pos.to_le_bytes());
             key.push(mask);
         }
+        let mut position_masks: Vec<_> = qb.position_masks.iter().collect();
+        position_masks.sort_unstable_by_key(|(&pos, _)| pos);
+        key.extend_from_slice(&(position_masks.len() as u16).to_le_bytes());
+        for (&pos, &mask) in position_masks {
+            key.extend_from_slice(&pos.to_le_bytes());
+            key.push(mask);
+        }
     }
     key
 }
@@ -482,6 +489,11 @@ mod tests {
         other.quantum_blocks[0]
             .push_masks
             .insert(pos, Dir::Up.mask());
+        assert_ne!(key, subtree_key(&other, &[Dir::Up], 0));
+        other = board.clone();
+        other.quantum_blocks[0]
+            .position_masks
+            .insert(pos, Dir::Down.mask());
         assert_ne!(key, subtree_key(&other, &[Dir::Up], 0));
         assert_ne!(key, subtree_key(&board, &[Dir::Down], 0));
         assert_ne!(key, subtree_key(&board, &[Dir::Up], 1));

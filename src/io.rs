@@ -388,7 +388,7 @@ fn push_mask_display_for_tile(board: &QuantumBoard, flat: FlatIdx) -> String {
         Tile::Box => crate::types::push_mask_to_string(board.get_box_push_mask(flat)),
         Tile::Quantum(id) => {
             let qb = &board.quantum_blocks[id as usize];
-            let mask = qb.box_push_mask_at(flat);
+            let mask = qb.position_push_mask(flat);
             if mask == crate::types::PUSH_NONE {
                 "####".to_string()
             } else {

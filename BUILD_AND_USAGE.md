@@ -142,6 +142,12 @@ a specific invocation or get machine-readable output:
 .\scripts\search-progress.ps1 -LogDirectory logs\YOUR_RUN_DIRECTORY -Json
 ```
 
+The script detects the run's split depth from the `depth=` field of the
+`[subtree:start]` log lines and prints it with the search identity. `Prefix`
+is the active root's full split-depth move path, so its length equals that
+split depth. To confirm you selected a run launched with a particular depth,
+pass `-SplitDepth N`; the script fails if the logs disagree.
+
 `Prefix` identifies a worker's active root. `Prefix25` is the first 25 moves
 of its latest reported backward path, or fewer when that path is shorter.
 It is blank until the root reports progress. `BestSteps` is the latest
@@ -211,7 +217,9 @@ python scripts/level_player.py --records runs/5x7-exit-3-4
 Select a root in the sidebar. Move with arrow keys or WASD, undo with U or
 Z, and restart with R. Orange box edges mark the sides the player may push
 against. The player uses saved concrete witnesses, validates their supplied
-solutions, and skips records that contain only a quantum family.
+solutions, and skips records that contain only a quantum family. The sidebar's
+**Minimum moves** field hides roots whose saved record is shorter, and the
+count reports how many levels match.
 
 The level list refreshes every 30 seconds. A newer record does not reset
 your current game; select its root again or click "Load new record".

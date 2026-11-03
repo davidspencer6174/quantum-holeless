@@ -234,6 +234,10 @@ pub struct QuantumBlock {
     pub wall_pos: Option<FlatIdx>,
     /// pushability mask for each start position.
     pub push_masks: FxHashMap<FlatIdx, PushMask>,
+    /// Push directions the block is pushed in from each current position onward
+    /// (towards the solved state). A pull uses the mask of the position being
+    /// pulled from, never a union over unrelated start masks.
+    pub position_masks: FxHashMap<FlatIdx, PushMask>,
 }
 
 impl QuantumBlock {
@@ -247,6 +251,24 @@ impl QuantumBlock {
             }
         }
         self.push_masks.retain(|&start, _| valid_starts.binary_search(&start).is_ok());
+        // Position masks are keyed by current position, so only positions that
+        // still exist are meaningful. Unlike `push_masks`, they intentionally
+        // survive `apply_ruled_out` removing a position's own start.
+        self.position_masks.retain(|pos, _| self.cells.contains_key(pos));
+    }
+
+    /// Recompute the default per-position masks from the per-start masks.
+    fn rebuild_position_masks(&mut self) {
+        self.position_masks.clear();
+        let positions: Vec<FlatIdx> = self.cells.keys().copied().collect();
+        for pos in positions {
+            let mask = match self.cells.get(&pos) {
+                Some(starts) if fis_contains(starts, pos) => self.push_mask_for_start(pos),
+                Some(_) => self.box_push_mask_at(pos),
+                None => continue,
+            };
+            self.position_masks.insert(pos, mask);
+        }
     }
 
     /// Construct from a HashMap. Asserts wall_pos is a start in at least one cell.
@@ -263,11 +285,14 @@ impl QuantumBlock {
                 push_masks.entry(start).or_insert(PUSH_ALL);
             }
         }
-        Self {
+        let mut block = Self {
             cells,
             wall_pos,
             push_masks,
-        }
+            position_masks: FxHashMap::default(),
+        };
+        block.rebuild_position_masks();
+        block
     }
 
     /// Construct from a HashMap with explicit push masks.
@@ -286,13 +311,36 @@ impl QuantumBlock {
             cells,
             wall_pos,
             push_masks,
+            position_masks: FxHashMap::default(),
         };
         block.purge_orphaned_push_masks();
+        block.rebuild_position_masks();
         block
     }
 
     pub fn set_push_mask(&mut self, start: FlatIdx, mask: PushMask) {
         self.push_masks.insert(start, mask);
+        // A position whose only start is itself describes a block that starts
+        // there, so its later-push mask is exactly this start mask.
+        if self
+            .cells
+            .get(&start)
+            .is_some_and(|starts| starts.as_slice() == [start])
+        {
+            self.position_masks.insert(start, mask);
+        }
+    }
+
+    /// Push directions experienced from `pos` onward in the solved direction.
+    pub fn position_push_mask(&self, pos: FlatIdx) -> PushMask {
+        self.position_masks
+            .get(&pos)
+            .copied()
+            .unwrap_or_else(|| self.box_push_mask_at(pos))
+    }
+
+    pub fn set_position_push_mask(&mut self, pos: FlatIdx, mask: PushMask) {
+        self.position_masks.insert(pos, mask);
     }
 
     /// Construct a concrete box (single position, single start, no wall).
@@ -301,10 +349,13 @@ impl QuantumBlock {
         cells.insert(pos, fis_single(pos));
         let mut push_masks = FxHashMap::default();
         push_masks.insert(pos, PUSH_ALL);
+        let mut position_masks = FxHashMap::default();
+        position_masks.insert(pos, PUSH_ALL);
         Self {
             cells,
             wall_pos: None,
             push_masks,
+            position_masks,
         }
     }
 
@@ -316,14 +367,17 @@ impl QuantumBlock {
     ) -> Self {
         let mut cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
         let mut push_masks = FxHashMap::default();
+        let mut position_masks = FxHashMap::default();
         for p in positions {
             cells.insert(p, fis_single(p));
             push_masks.insert(p, PUSH_ALL);
+            position_masks.insert(p, PUSH_ALL);
         }
         let mut block = Self {
             cells,
             wall_pos,
             push_masks,
+            position_masks,
         };
         if let Some(w) = wall_pos {
             debug_assert!(
@@ -331,6 +385,7 @@ impl QuantumBlock {
                 "QuantumBlock: wall_pos must appear in at least one cell's starts"
             );
             block.push_masks.entry(w).or_insert(PUSH_NONE);
+            block.position_masks.entry(w).or_insert(PUSH_NONE);
         }
         block
     }
@@ -424,6 +479,7 @@ impl QuantumBlock {
     pub fn remove_current(&mut self, pos: FlatIdx) -> bool {
         let removed = self.cells.remove(&pos).is_some();
         if removed {
+            self.position_masks.remove(&pos);
             self.purge_orphaned_push_masks();
         }
         removed
@@ -436,6 +492,7 @@ impl QuantumBlock {
             *starts = fis_intersection(starts, allowed);
             if starts.is_empty() {
                 self.cells.remove(&pos);
+                self.position_masks.remove(&pos);
             }
             self.purge_orphaned_push_masks();
         }

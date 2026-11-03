@@ -1,6 +1,8 @@
 param(
     [string]$LogDirectory,
     [string]$Frontier,
+    # Optional: assert the run was launched with this split depth. 0 means detect from the logs.
+    [int]$SplitDepth = 0,
     [switch]$Json
 )
 $ErrorActionPreference = 'Stop'
@@ -51,15 +53,23 @@ foreach ($file in $files) {
                 $best = [Math]::Max($best, [int]$Matches[2])
             }
             if ($line -match '^\[worker:failed\]') { $failures++ }
-            if ($line -match '^\[subtree:(start|finished|cancelled|saved)\] id=(\d+)(?: depth=\d+)? moves=([UDLR]+)$') {
-                $event = $Matches[1]; $id = [long]$Matches[2]; $moves = $Matches[3]
+            if ($line -match '^\[subtree:(start|finished|cancelled|saved)\] id=(\d+)(?: depth=(\d+))? moves=([UDLR]+)$') {
+                $event = $Matches[1]; $id = [long]$Matches[2]; $depth = $Matches[3]; $moves = $Matches[4]
                 if (-not $jobs.ContainsKey($id)) {
-                    $jobs[$id] = [pscustomobject]@{ Id=$id; Moves=$moves; Worker=$file.BaseName; Started=$false; Finished=$false; Cancelled=$false; Saved=$false; StartUpper=$null; BestSteps=$null }
+                    $jobs[$id] = [pscustomobject]@{ Id=$id; Moves=$moves; Depth=$null; Worker=$file.BaseName; Started=$false; Finished=$false; Cancelled=$false; Saved=$false; StartUpper=$null; BestSteps=$null }
                 }
                 $job = $jobs[$id]
                 if ($job.Moves -ne $moves -or $job.Worker -ne $file.BaseName) { throw "Inconsistent subtree ID $id in logs." }
                 switch ($event) {
-                    'start' { $job.Started = $true; $latestRootMoves = $null }
+                    'start' {
+                        $job.Started = $true
+                        if ($depth) {
+                            $job.Depth = [int]$depth
+                            # The prefix logged for a subtree is its split-depth move path.
+                            if ($job.Moves.Length -ne $job.Depth) { throw "Subtree $id logs $($job.Moves.Length) moves but depth $($job.Depth)." }
+                        }
+                        $latestRootMoves = $null
+                    }
                     'finished' { $job.Finished = $true; $finished[$id] = $true }
                     'cancelled' { $job.Cancelled = $true }
                     'saved' { $job.Saved = $true }
@@ -89,6 +99,13 @@ foreach ($file in $files) {
         $workers += [pscustomobject]@{ Worker=$file.BaseName; Finished=$finished.Count; Active=($active.Id -join ','); BestSteps=$(if ($active.Count -eq 1) { $active[0].BestSteps }); ActiveHoursAtLeast=$age; LatestHours=$(if ($last) { $last.Seconds / 3600.0 }); Phase=$(if ($last) { $last.Phase }); Prefix=($active.Moves -join ','); Prefix25=$prefix25 }
     }
 }
+$observedDepths = @($jobs.Values | ForEach-Object { $_.Depth } | Where-Object { $null -ne $_ } | Sort-Object -Unique)
+if ($SplitDepth -gt 0 -and $observedDepths.Count -gt 0 -and -not ($observedDepths.Count -eq 1 -and $observedDepths[0] -eq $SplitDepth)) {
+    throw "Requested split depth $SplitDepth but logs record depth $($observedDepths -join ', '). Wrong log directory?"
+}
+if ($observedDepths.Count -gt 1) { throw "Logs contain multiple split depths ($($observedDepths -join ', ')); select one run directory." }
+if ($observedDepths.Count -eq 1) { $SplitDepth = $observedDepths[0] }
+$splitLabel = if ($SplitDepth -gt 0) { "$SplitDepth" } else { 'unknown' }
 $started = @($jobs.Values | Where-Object Started).Count
 $completed = @($jobs.Values | Where-Object Finished).Count
 $savedCount = @($jobs.Values | Where-Object Saved).Count
@@ -118,10 +135,10 @@ if ($Frontier) {
         [pscustomobject]@{ MeanWorkerHoursPerRoot=$hours; TotalDays=$(if ($workers.Count) { $roots.Count * $hours / $workers.Count / 24.0 }) }
     }) }
 }
-$report = [pscustomobject]@{ Directory=$LogDirectory; Search=$identity; LatestReportedHours=$elapsed/3600.0; LatestObservedBoards=$boards; Best=$best; Started=$started; Finished=$completed; Saved=$savedCount; Active=$activeCount; Cancelled=$cancelled; FailureMessages=$failures; RecentBoardsPerHour=$rate; Workers=$workers; Reference=$reference }
+$report = [pscustomobject]@{ Directory=$LogDirectory; Search=$identity; SplitDepth=$(if ($SplitDepth -gt 0) { $SplitDepth } else { $null }); LatestReportedHours=$elapsed/3600.0; LatestObservedBoards=$boards; Best=$best; Started=$started; Finished=$completed; Saved=$savedCount; Active=$activeCount; Cancelled=$cancelled; FailureMessages=$failures; RecentBoardsPerHour=$rate; Workers=$workers; Reference=$reference }
 if ($Json) { $report | ConvertTo-Json -Depth 6; return }
 Write-Output "Logs: $LogDirectory"
-Write-Output ("{0}: latest reported elapsed {1:N2} hours; {2:N0} boards observed; record {3}" -f $identity, ($elapsed/3600.0), $boards, $best)
+Write-Output ("{0}: split depth {1}; latest reported elapsed {2:N2} hours; {3:N0} boards observed; record {4}" -f $identity, $splitLabel, ($elapsed/3600.0), $boards, $best)
 Write-Output "Subtrees: $started started, $completed finished, $activeCount active, $cancelled cancelled; $savedCount saved from checkpoint; $failures failure messages."
 if ($null -ne $rate) { Write-Output ("Recent throughput: {0:N0} boards/hour (global counters, not summed across workers)." -f $rate) }
 $workers | Format-Table Worker, Finished, Active, BestSteps, @{n='Age >= hours';e={if ($null -ne $_.ActiveHoursAtLeast) {'{0:N2}' -f $_.ActiveHoursAtLeast}}}, Phase, Prefix, Prefix25 -AutoSize | Out-String -Width 240 | Write-Output

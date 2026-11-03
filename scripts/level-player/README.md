@@ -25,6 +25,9 @@ exit completes the level, and undo remains available afterward.
 Only saved concrete witnesses with an uncovered starting exit are included.
 Every record's supplied solution is replayed to validate its board and masks
 before it is exposed to the browser. Quantum-family-only records are skipped.
+The sidebar's **Minimum moves** field hides roots below that record length;
+combine it with the search box to narrow a large root list, and the count
+shows how many levels match.
 The list refreshes every 30 seconds. An improved record appears in the list;
 the current game stays intact until its root or "Load new record" is clicked.
 Snapshots reflect saved exports, which can lag search improvements by around

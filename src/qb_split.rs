@@ -174,9 +174,9 @@ fn split_once(
         for &other in &positions {
             child.qb_remove_current(id as u8, other);
         }
-        let is_wall = qb.wall_pos == Some(pos);
+        let is_wall = !qb.can_be_box_at(pos);
         child.set_flat(pos, if is_wall { Tile::Wall } else { Tile::Box });
-        child.set_box_push_mask(pos, if is_wall { 0 } else { qb.box_push_mask_at(pos) });
+        child.set_box_push_mask(pos, if is_wall { 0 } else { qb.position_push_mask(pos) });
         match solve_child(&child) {
             BfsResult::SomeClean {
                 ruled_out,

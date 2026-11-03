@@ -176,6 +176,22 @@ impl QuantumBoard {
         self.quantum_blocks[id as usize].is_empty()
     }
 
+    /// Completely remove a QuantumBlock, turning all its current cells into Floor.
+    pub fn remove_qb(&mut self, id: QBlockId) {
+        let qb = &mut self.quantum_blocks[id as usize];
+        let positions: Vec<FlatIdx> = qb.cells.keys().copied().collect();
+        qb.cells.clear();
+        qb.wall_pos = None;
+        qb.push_masks.clear();
+        qb.position_masks.clear();
+        for pos in positions {
+            if self.get_flat(pos) == Tile::Quantum(id) {
+                self.set_flat(pos, Tile::Floor);
+                self.set_box_push_mask(pos, 0);
+            }
+        }
+    }
+
     /// Restrict starts at a current position to the given set (intersect).
     pub fn qb_restrict_starts(&mut self, id: QBlockId, pos: FlatIdx, allowed: &FlatIdxSet) {
         self.quantum_blocks[id as usize].restrict_starts_at(pos, allowed);
@@ -189,6 +205,9 @@ impl QuantumBoard {
         let positions: Vec<FlatIdx> = self.quantum_blocks[id as usize]
             .current_positions()
             .collect();
+        // The later-push mask belongs to the position, not to the individual
+        // starts, and must survive dropping the other start hypotheses.
+        let position_mask = self.quantum_blocks[id as usize].position_push_mask(box_pos);
         for pos in positions {
             if pos != box_pos && self.get_flat(pos) == Tile::Quantum(id8) {
                 self.set_flat(pos, Tile::Floor);
@@ -204,7 +223,9 @@ impl QuantumBoard {
         }
         let mut new_cells: FxHashMap<FlatIdx, FlatIdxSet> = FxHashMap::default();
         new_cells.insert(box_pos, box_starts);
-        self.quantum_blocks[id as usize] = QuantumBlock::new_with_push_masks(new_cells, None, new_push_masks);
+        let mut block = QuantumBlock::new_with_push_masks(new_cells, None, new_push_masks);
+        block.set_position_push_mask(box_pos, position_mask);
+        self.quantum_blocks[id as usize] = block;
     }
 
     // ── Miscellaneous ─────────────────────────────────────────────────────
@@ -226,22 +247,28 @@ impl QuantumBoard {
                 continue;
             }
             let pos = qb.current_positions().next().unwrap();
+            let can_be_box = qb.can_be_box_at(pos);
             let is_wall = qb.wall_pos == Some(pos);
-            let mask = if !is_wall {
-                qb.box_push_mask_at(pos)
+            // A position that can be either a wall or a box is a genuine
+            // ambiguity; collapsing it would silently drop one interpretation.
+            if is_wall && can_be_box {
+                continue;
+            }
+            // The concrete box keeps the later-push mask for this position, not
+            // the union of unrelated start masks.
+            let mask = if can_be_box {
+                qb.position_push_mask(pos)
             } else {
                 PUSH_NONE
             };
-            let tile = if is_wall { Tile::Wall } else { Tile::Box };
+            let tile = if can_be_box { Tile::Box } else { Tile::Wall };
             self.set_flat(pos, tile);
-            if !is_wall {
-                self.set_box_push_mask(pos, mask);
-            } else {
-                self.set_box_push_mask(pos, PUSH_NONE);
-            }
-            self.quantum_blocks[id].cells.clear();
-            self.quantum_blocks[id].wall_pos = None;
-            self.quantum_blocks[id].push_masks.clear();
+            self.set_box_push_mask(pos, mask);
+            let qb = &mut self.quantum_blocks[id];
+            qb.cells.clear();
+            qb.wall_pos = None;
+            qb.push_masks.clear();
+            qb.position_masks.clear();
         }
     }
 
